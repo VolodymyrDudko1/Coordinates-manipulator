@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from concurrent.futures import ProcessPoolExecutor
+from math import cos, isfinite, radians, sin, tan
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +18,26 @@ from .auth import (
     require_role,
     verify_password,
 )
+from .config import settings
 from .database import Base, engine, get_db
 from .models import PortalSimulation, User
 
-app = FastAPI(title="Multidimensional Portal Generator API")
+logger = logging.getLogger(__name__)
+app = FastAPI(title="Multidimensional Portal Generator API", debug=settings.DEBUG)
 cpu_executor = ProcessPoolExecutor()
+G_CONSTANT = 6.67430e-11
+MAX_COORDINATE_MAGNITUDE = 1e12
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled exception while processing %s",
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    detail = str(exc) if settings.DEBUG else "An internal server error occurred."
+    return JSONResponse(status_code=500, content={"message": detail})
 
 
 class RegisterRequest(BaseModel):
@@ -48,10 +66,17 @@ class UserResponse(BaseModel):
 
 class SimulationRequest(BaseModel):
     coordinates: Any | None = None
-    dimension_id: int = Field(default=1, ge=1)
+    dimension_id: int = Field(default=1, ge=1, le=1_000_000)
     complexity: int = Field(default=1, ge=1, le=100)
-    initial_speed: float = Field(default=0.0, ge=0.0)
-    object_mass: float = Field(default=1.0, gt=0.0)
+    initial_speed: float = Field(default=0.0, ge=0.0, le=1_000_000)
+    object_mass: float = Field(default=1.0, gt=0.0, le=1_000_000)
+
+    @field_validator("initial_speed", "object_mass")
+    @classmethod
+    def require_finite_values(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("Value must be finite")
+        return value
 
 
 def calculate_coordinates(coordinates: Any) -> Any:
@@ -63,21 +88,73 @@ def calculate_coordinates(coordinates: Any) -> Any:
     return coordinates
 
 
-def calculate_trajectory(
+def _clamp_coordinate(value: float) -> float:
+    if not isfinite(value):
+        return 0.0
+    return max(-MAX_COORDINATE_MAGNITUDE, min(MAX_COORDINATE_MAGNITUDE, value))
+
+
+def _has_invalid_coordinates(coordinates: Any) -> bool:
+    try:
+        return any(
+            not isfinite(float(value)) for point in coordinates for value in point
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def calculate_secure_coordinates(
     dimension_id: int,
     complexity: int,
     initial_speed: float,
     object_mass: float,
-) -> list[dict[str, float]]:
-    points = max(8, complexity * 8)
-    return [
-        {
-            "x": float(step),
-            "y": initial_speed * step / object_mass,
-            "z": float(dimension_id) * (step / points) ** 2,
-        }
-        for step in range(points)
+) -> list[list[float]]:
+    """Calculate non-linear geodesic coordinates in O(N) time and memory.
+
+    ``N`` is ``max(8, complexity * 8) + 1`` samples. The returned list owns
+    three Python float objects per sample; this compact triplet representation
+    is serialized by the API as JSON and stored as one JSON database value.
+    The function is top-level, synchronous, and free of application state so
+    it can be serialized to a ``ProcessPoolExecutor`` worker.
+    """
+    if not all(
+        (
+            isfinite(initial_speed),
+            isfinite(object_mass),
+            object_mass > 0,
+        )
+    ):
+        raise ValueError("Trajectory parameters must be finite and valid")
+    logger.info(
+        "Generating geodesic coordinates: object_mass=%s initial_speed=%s "
+        "complexity=%s dimension_id=%s",
+        object_mass,
+        initial_speed,
+        complexity,
+        dimension_id,
+    )
+    total_steps = max(8, complexity * 8)
+    slope = tan(radians(dimension_id * 5))
+    coordinates = [
+        [
+            _clamp_coordinate(initial_speed * t),
+            _clamp_coordinate(
+                slope * initial_speed * t
+                - 0.5 * (G_CONSTANT * object_mass * (t**2)) / (dimension_id**1.5)
+                + (object_mass * 1.5) * sin(complexity * 0.2 * t)
+            ),
+            _clamp_coordinate((object_mass * 0.8) * cos(complexity * 0.15 * t)),
+        ]
+        for t in range(total_steps + 1)
     ]
+    has_invalid_values = _has_invalid_coordinates(coordinates)
+    logger.info(
+        "Generated %d geodesic points; sample=%s; invalid_values=%s",
+        len(coordinates),
+        coordinates[:3],
+        has_invalid_values,
+    )
+    return coordinates
 
 
 @app.on_event("startup")
@@ -172,20 +249,35 @@ async def run_simulation(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    loop = asyncio.get_running_loop()
-    if request.coordinates is not None:
-        coordinates = await loop.run_in_executor(
-            cpu_executor, calculate_coordinates, request.coordinates
+    try:
+        loop = asyncio.get_running_loop()
+        if request.coordinates is not None:
+            coordinates = await loop.run_in_executor(
+                cpu_executor, calculate_coordinates, request.coordinates
+            )
+        else:
+            coordinates = await loop.run_in_executor(
+                cpu_executor,
+                calculate_secure_coordinates,
+                request.dimension_id,
+                request.complexity,
+                request.initial_speed,
+                request.object_mass,
+            )
+        logger.info(
+            "Simulation result: points=%d sample=%s invalid_values=%s",
+            len(coordinates),
+            coordinates[:3],
+            _has_invalid_coordinates(coordinates),
         )
-    else:
-        coordinates = await loop.run_in_executor(
-            cpu_executor,
-            calculate_trajectory,
-            request.dimension_id,
-            request.complexity,
-            request.initial_speed,
-            request.object_mass,
-        )
+    except ValueError as exc:
+        logger.exception("Invalid simulation calculation parameters")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Simulation calculation failed")
+        raise HTTPException(
+            status_code=500, detail="Simulation calculation failed"
+        ) from exc
     simulation = PortalSimulation(user_id=current_user.id, coordinates=coordinates)
     db.add(simulation)
     await db.commit()

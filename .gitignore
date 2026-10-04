@@ -57,6 +57,8 @@ coverage.xml
 
 # Database and Environment Variables
 .env
+.env.sandbox
+.env.production
 *.db
 *.sqlite3
 

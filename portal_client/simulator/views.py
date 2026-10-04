@@ -1,9 +1,12 @@
+import logging
 from typing import Any
 
 import httpx
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
+
+logger = logging.getLogger(__name__)
 
 
 def _backend_error(response: httpx.Response) -> str:
@@ -30,6 +33,11 @@ async def login_view(request: HttpRequest):
                     "password": request.POST.get("password", ""),
                 },
             )
+            logger.info(
+                "FastAPI POST /auth/login status=%s body=%s",
+                response.status_code,
+                response.text,
+            )
             if response.is_success:
                 request.session["access_token"] = response.json()["access_token"]
                 return redirect("dashboard")
@@ -49,6 +57,11 @@ async def register_view(request: HttpRequest):
                     "email": request.POST.get("email", ""),
                     "password": request.POST.get("password", ""),
                 },
+            )
+            logger.info(
+                "FastAPI POST /auth/register status=%s body=%s",
+                response.status_code,
+                response.text,
             )
             if response.is_success:
                 return redirect("login")
@@ -84,6 +97,13 @@ async def run_simulation_proxy(request: HttpRequest):
             "/simulations/run",
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
+        )
+        logger.info(
+            "FastAPI POST /simulations/run status=%s body=%s "
+            "authorization_attached=%s",
+            response.status_code,
+            response.text,
+            bool(token),
         )
     except httpx.RequestError:
         return JsonResponse({"error": "Calculation engine unavailable"}, status=503)
