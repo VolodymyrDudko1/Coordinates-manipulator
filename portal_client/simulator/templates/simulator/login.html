@@ -1,0 +1,6 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal Login</title><link rel="stylesheet" href="{% static 'simulator/css/style.css' %}"></head>
+<body class="auth-shell"><main class="auth-card"><h1>Portal Generator</h1><p>Sign in to launch a simulation.</p>{% if error %}<div class="error">{{ error }}</div>{% endif %}<form method="post">{% csrf_token %}<label>Email<input type="email" name="email" required></label><label>Password<input type="password" name="password" required></label><button type="submit">Sign in</button></form><p>New operator? <a href="{% url 'register' %}">Create an account</a></p></main></body>
+</html>

@@ -1,0 +1,6 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal Dashboard</title><link rel="stylesheet" href="{% static 'simulator/css/style.css' %}"></head>
+<body class="dashboard-shell"><aside><h1>PORTAL<br>GENERATOR</h1><p>Space-time trajectory control</p><a href="{% url 'logout' %}">Log out</a></aside><main class="dashboard-main"><section class="controls"><h2>Simulation parameters</h2><form id="simulationForm">{% csrf_token %}<label>Dimension ID<input type="number" name="dimension_id" value="1" min="1" required></label><label>Complexity<input type="number" name="complexity" value="4" min="1" max="100" required></label><label>Initial Speed<input type="number" name="initial_speed" value="12" min="0" step="0.1" required></label><label>Object Mass<input type="number" name="object_mass" value="1" min="0.01" step="0.1" required></label><button type="submit">Launch Portal Simulation</button></form><p id="status" role="status"></p></section><section class="viewport"><canvas id="portalCanvas" width="800" height="500"></canvas></section></main><script src="{% static 'simulator/js/canvas_sim.js' %}?v=20261004-geodesic-debug"></script></body>
+</html>

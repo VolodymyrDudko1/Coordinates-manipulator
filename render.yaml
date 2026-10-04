@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: portal-generator-api
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /docs
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portal-db-prod
+          property: connectionString
+
+databases:
+  - name: portal-db-prod
+    plan: free
+    databaseName: portal_db_prod
+    user: postgres
