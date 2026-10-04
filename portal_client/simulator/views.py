@@ -1,51 +1,101 @@
+from typing import Any
+
 import httpx
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render
-
-# External Industry Standards: Using asynchronous HTTPX client to ensure
-# our Django worker threads are not blocked during FastAPI communication.
+from django.http import HttpRequest, JsonResponse
+from django.shortcuts import redirect, render
 
 
-async def simulation_dashboard(request: HttpRequest) -> HttpResponse:
-    """
-    Renders the main dashboard containing our inputs and HTML5 Canvas.
-    """
-    return render(request, "simulator/index.html")
+def _backend_error(response: httpx.Response) -> str:
+    try:
+        detail = response.json().get("detail")
+    except ValueError:
+        detail = None
+    return str(detail or "Backend request failed")
 
 
-async def run_simulation_proxy(request: HttpRequest) -> JsonResponse:
-    """
-    Asynchronously forwards user parameters (coordinates, speed, mass)
-    to our FastAPI calculations engine and proxies the trajectory back to the client.
-    """
+async def _post_backend(path: str, **kwargs: Any) -> httpx.Response:
+    async with httpx.AsyncClient(base_url=settings.FASTAPI_BACKEND_URL) as client:
+        return await client.post(path, timeout=10.0, **kwargs)
+
+
+async def login_view(request: HttpRequest):
+    error = None
+    if request.method == "POST":
+        try:
+            response = await _post_backend(
+                "/auth/login",
+                json={
+                    "email": request.POST.get("email", ""),
+                    "password": request.POST.get("password", ""),
+                },
+            )
+            if response.is_success:
+                request.session["access_token"] = response.json()["access_token"]
+                return redirect("dashboard")
+            error = _backend_error(response)
+        except httpx.RequestError:
+            error = "Authentication service is unavailable."
+    return render(request, "simulator/login.html", {"error": error})
+
+
+async def register_view(request: HttpRequest):
+    error = None
+    if request.method == "POST":
+        try:
+            response = await _post_backend(
+                "/auth/register",
+                json={
+                    "email": request.POST.get("email", ""),
+                    "password": request.POST.get("password", ""),
+                },
+            )
+            if response.is_success:
+                return redirect("login")
+            error = _backend_error(response)
+        except httpx.RequestError:
+            error = "Registration service is unavailable."
+    return render(request, "simulator/register.html", {"error": error})
+
+
+async def dashboard_view(request: HttpRequest):
+    if not request.session.get("access_token"):
+        return redirect("login")
+    return render(request, "simulator/dashboard.html")
+
+
+async def run_simulation_proxy(request: HttpRequest):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
-
+    token = request.session.get("access_token")
+    if not token:
+        return JsonResponse({"error": "Authentication required"}, status=401)
     try:
-        # 1. Parse incoming parameters safely
-        dimension_id = int(request.POST.get("dimension_id", 1))
-        complexity = int(request.POST.get("complexity", 1))
-        initial_speed = float(request.POST.get("initial_speed", 0.0))
-        object_mass = float(request.POST.get("object_mass", 1.0))
-    except (ValueError, TypeError):
-        return JsonResponse({"error": "Invalid parameter values provided"}, status=400)
+        payload = {
+            "dimension_id": int(request.POST.get("dimension_id", "1")),
+            "complexity": int(request.POST.get("complexity", "1")),
+            "initial_speed": float(request.POST.get("initial_speed", "0")),
+            "object_mass": float(request.POST.get("object_mass", "1")),
+        }
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Invalid simulation parameters"}, status=400)
+    try:
+        response = await _post_backend(
+            "/simulations/run",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JsonResponse({"error": "Calculation engine unavailable"}, status=503)
+    if response.status_code == 401:
+        request.session.flush()
+    try:
+        body = response.json()
+    except ValueError:
+        body = {"error": "Invalid response from calculation engine"}
+    return JsonResponse(body, status=response.status_code)
 
-    payload = {
-        "dimension_id": dimension_id,
-        "complexity": complexity,
-        "initial_speed": initial_speed,
-        "object_mass": object_mass,
-    }
 
-    # settings.FASTAPI_BACKEND_URL should be configured in settings.py (e.g. "http://localhost:8000")
-    fastapi_url = f"{settings.FASTAPI_BACKEND_URL}/simulations/run"
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(fastapi_url, json=payload, timeout=10.0)
-            return JsonResponse(response.json(), status=response.status_code)
-        except httpx.RequestError as exc:
-            return JsonResponse(
-                {"error": f"Calculation engine unreachable: {str(exc)}"}, status=503
-            )
+async def logout_view(request: HttpRequest):
+    request.session.flush()
+    return redirect("login")
