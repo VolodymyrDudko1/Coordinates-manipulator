@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -133,7 +134,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Prepare image tags
         run: |
