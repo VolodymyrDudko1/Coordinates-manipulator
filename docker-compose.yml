@@ -55,7 +55,7 @@ services:
       backend:
         condition: service_healthy
     environment:
-      FASTAPI_BACKEND_URL: http://backend:8000
+      FASTAPI_BACKEND_URL: ${FASTAPI_BACKEND_URL:-http://backend:8000}
     networks:
       - portal-net
 
