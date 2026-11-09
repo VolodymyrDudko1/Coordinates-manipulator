@@ -79,7 +79,7 @@ jobs:
       matrix:
         include:
           - service: backend
-            dockerfile: Dockerfile.backend
+            dockerfile: Dockerfile
           - service: client
             dockerfile: Dockerfile.client
     steps:

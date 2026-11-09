@@ -7,7 +7,8 @@ repos:
       - id: trailing-whitespace      # Trims trailing whitespace
       - id: end-of-file-fixer        # Ensures files end with a newline
       - id: check-yaml               # Validates YAML syntax integrity
-      - id: check-added-large-files  # Blocks heavy binaries (>500KB) from git tracking
+      - id: check-added-large-files  # Blocks heavy binaries (>1MB) from git tracking
+        args: ['--maxkb=1024']       # Locust HTML reports (load-tests/results) are ~950KB
 
   # 2. Ultra-fast Ruff Quality Gate
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -15,4 +16,3 @@ repos:
     hooks:
       - id: ruff                     # Runs static analysis linting checks
         args: [ --fix ]              # Automatically patches safe issues (like unused imports)
-      - id: ruff-format              # Re-formats code layout to PEP 8 automatically

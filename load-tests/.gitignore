@@ -1,0 +1,12 @@
+# .venv/, __pycache__/ and *.log (incl. results/*.log) are already ignored by the root .gitignore.
+
+# Superseded / interrupted test series — kept locally for reference only
+results/first_attempt/
+results/second_attempt_partial/
+
+# Smoke runs
+results/smoke_*
+
+# Ad-hoc monitor output (run_test.sh writes per-run results/run_<N>u_resources.csv instead)
+results/resources.csv
+results/docker_stats.csv

@@ -1,0 +1,51 @@
+# Build context is the repo root (Dockerfile / Dockerfile.client copy sub-folders).
+# Keep it small and never ship secrets or local artefacts into an image.
+
+# VCS / CI
+.git
+.gitignore
+.github
+
+# Python artefacts
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+.coverage*
+
+# Virtual environments
+**/venv
+**/.venv
+**/env
+
+# Secrets / local configuration (only .env*.example may enter the context)
+**/.env
+**/.env.*
+!**/.env*.example
+.mcp.json
+
+# Logs, local databases
+logs/*.log
+**/*.log
+**/*.db
+**/*.sqlite3
+
+# Load tests (Lab 4) are not part of any image
+load-tests/results
+load-tests
+
+# IDE / editor / OS
+.idea
+.vscode
+.claude
+.claudeignore
+*.swp
+.DS_Store
+
+# Docker files themselves
+Dockerfile*
+docker-compose*.yml
+.dockerignore

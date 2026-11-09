@@ -1,67 +1,80 @@
+# Production-like stack. One command:  docker compose up --build
+#
+#   host :8000 ──► web (gunicorn + uvicorn workers) ──[backend, internal]──► db (postgres:16-alpine)
+#                                                                              └─ volume pgdata
+#
+# Dev mode with hot reload: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Optional Django dashboard: docker compose --profile client up --build   (http://localhost:8080)
+
+name: portal   # fixed project name -> containers portal-web-1 / portal-db-1, volume portal_pgdata
+
 services:
   db:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+    env_file: .env          # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB — only from .env
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     networks:
-      - portal-net
-
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      ENVIRONMENT: ${ENVIRONMENT:-sandbox}
-      DEBUG: ${DEBUG:-True}
-      SECRET_KEY: ${SECRET_KEY:-development-only-change-me}
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
-      PORT: 8000
+      - backend
+    # Not published to the host by default. Uncomment only for local debugging (psql/DBeaver):
+    # ports:
+    #   - "127.0.0.1:5432:5432"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: portal-web:latest
+    env_file: .env
+    environment:
+      # Built from the same POSTGRES_* values, so the app and the DB can never disagree.
+      # Host "db" is the compose service name, resolved by Docker DNS on the backend network.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@db:5432/${POSTGRES_DB:?set in .env}
+      PORT: 8000
+    ports:
+      - "${WEB_PORT:-8000}:8000"   # the only port published to the host
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
-      - portal-net
+      - backend    # to reach db
+      - frontend   # published port + optional client
+    healthcheck:
+      # /health runs SELECT 1, so "healthy" means "app is up AND can talk to the DB".
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s   # time for wait-for-db + migrations
+    restart: unless-stopped
 
   client:
+    profiles: ["client"]
     build:
       context: .
       dockerfile: Dockerfile.client
     ports:
       - "8080:8080"
-    depends_on:
-      backend:
-        condition: service_healthy
     environment:
-      FASTAPI_BACKEND_URL: ${FASTAPI_BACKEND_URL:-http://backend:8000}
+      FASTAPI_BACKEND_URL: http://web:8000
+    depends_on:
+      web:
+        condition: service_healthy
     networks:
-      - portal-net
+      - frontend
+    restart: unless-stopped
 
 networks:
-  portal-net:
-    driver: bridge
+  backend:
+    internal: true   # no route to the outside world; db is reachable only from web
+  frontend: {}
 
 volumes:
-  postgres-data:
+  pgdata:            # survives `docker compose down`; removed only by `down -v`

@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -159,8 +159,25 @@ def calculate_secure_coordinates(
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # PostgreSQL schema is owned by Alembic (applied by docker-entrypoint.sh before
+    # the server starts). create_all is kept only for the zero-setup local SQLite run.
+    if engine.url.get_backend_name() == "sqlite":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+
+@app.get("/health", tags=["service"])
+async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> JSONResponse:
+    """Liveness + readiness: the process answers and the database is reachable."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 - any DB failure means "not ready"
+        logger.warning("Health check: database unavailable: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "error", "database": "unavailable"},
+        )
+    return JSONResponse(content={"status": "ok", "database": "ok"})
 
 
 @app.on_event("shutdown")

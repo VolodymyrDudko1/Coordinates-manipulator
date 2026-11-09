@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,/auth/register,CatchResponseError('register: HTTP 0 ReadTimeout'),2,2026-11-09T06:40:13Z,2026-11-09T06:40:23Z
+POST,/auth/register,CatchResponseError('register: HTTP 0 ConnectionError'),5,2026-11-09T06:39:00Z,2026-11-09T06:39:11Z
+POST,/auth/register,"CatchResponseError('register: HTTP 500 {""message"":""An internal server error occurred.""}')",7,2026-11-09T06:38:59Z,2026-11-09T06:39:23Z

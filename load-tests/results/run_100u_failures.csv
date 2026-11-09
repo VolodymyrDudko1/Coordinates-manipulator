@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,/auth/register,"CatchResponseError('register: HTTP 409 {""detail"":""Email already registered""}')",11,2026-11-09T07:13:34Z,2026-11-09T07:13:34Z
+POST,/auth/register,CatchResponseError('register: HTTP 0 ReadTimeout'),122,2026-11-09T07:11:28Z,2026-11-09T07:13:32Z
+POST,/auth/register,CatchResponseError('register: HTTP 0 ConnectionError'),75,2026-11-09T07:11:30Z,2026-11-09T07:13:02Z
+POST,/auth/register,"CatchResponseError('register: HTTP 500 {""message"":""An internal server error occurred.""}')",125,2026-11-09T07:11:08Z,2026-11-09T07:13:32Z
