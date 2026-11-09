@@ -1,0 +1,15 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,/auth/register,CatchResponseError('register: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),24,2026-11-09T08:07:06Z,2026-11-09T08:07:06Z
+POST,/auth/login,"CatchResponseError('login: HTTP 500 {""message"":""An internal server error occurred.""}')",2,2026-11-09T08:07:43Z,2026-11-09T08:07:49Z
+POST,/simulations/run [geodesic],CatchResponseError('simulation: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),1,2026-11-09T08:07:06Z,2026-11-09T08:07:06Z
+GET,/users/me,CatchResponseError('users/me: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),11,2026-11-09T08:08:52Z,2026-11-09T08:09:24Z
+POST,/auth/register,"CatchResponseError('register: HTTP 409 {""detail"":""Email already registered""}')",1,2026-11-09T08:07:31Z,2026-11-09T08:07:31Z
+POST,/auth/login,CatchResponseError('login: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),1,2026-11-09T08:09:14Z,2026-11-09T08:09:14Z
+POST,/simulations/run [geodesic],CatchResponseError('simulation: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),6,2026-11-09T08:09:01Z,2026-11-09T08:09:24Z
+POST,/simulations/run [coordinates],CatchResponseError('coordinates: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),3,2026-11-09T08:09:13Z,2026-11-09T08:09:14Z
+POST,/auth/login,CatchResponseError('login: HTTP 0 ReadTimeout'),1,2026-11-09T08:08:51Z,2026-11-09T08:08:51Z
+POST,/auth/login,CatchResponseError('login: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),22,2026-11-09T08:07:06Z,2026-11-09T08:07:06Z
+PUT,/users/[id],CatchResponseError('update user: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),2,2026-11-09T08:09:14Z,2026-11-09T08:09:24Z
+GET,/users/me,CatchResponseError('users/me: HTTP 0 ReadTimeout'),1,2026-11-09T08:09:14Z,2026-11-09T08:09:14Z
+POST,/auth/register,"CatchResponseError('register: HTTP 500 {""message"":""An internal server error occurred.""}')",1,2026-11-09T08:07:49Z,2026-11-09T08:07:49Z
+GET,/admin/dashboard (expect 403),"CatchResponseError('admin: expected 403, got 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c')",2,2026-11-09T08:08:45Z,2026-11-09T08:09:15Z

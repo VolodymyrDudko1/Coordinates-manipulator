@@ -104,3 +104,16 @@ export RESTART_CONTAINER=portal-web-1
 Створює `results/*_latency.png`, `*_throughput.png`, `*_resources.png`, `scalability.png`,
 `summary_*.csv` і перезаписує `report.md`. Якщо даних ще немає, у звіті з'являються позначені
 заглушки `⟪НЕМАЄ ДАНИХ …⟫`.
+
+## 7. ЛР 6: 1 репліка vs 3 репліки за Nginx
+
+Стек `docker-compose.lb.yml` (Nginx на `:80`, web1..3, по 1 CPU / 512 MB). Скрипт сам перемикає
+upstream (`single` → `round_robin`), перезапускає репліки, знімає ресурси й логи:
+
+```bash
+./run_lab6_compare.sh 50 5 3m          # results/lab6_single_*, results/lab6_lb3_*
+.venv/bin/python compare_report.py     # таблиця + results/lab6_compare_*.png
+```
+
+Locust ходить на `http://localhost` (Nginx), сценарій `locustfile.py` той самий.
+Опис і висновки — розділ «Лабораторна робота 6» у `multidimensional-portal-generator/README.md`.

@@ -1,0 +1,59 @@
+
+=== 1. All replicas up
+SERVICE   STATUS
+nginx     Up 11 seconds (healthy)
+web1      Up 6 minutes (healthy)
+web2      Up 5 minutes (healthy)
+web3      Up 6 minutes (healthy)
+---- summary: 20 requests, non-200: 0
+web1       6  ######
+web2       7  #######
+web3       7  #######
+
+=== 2. docker compose stop web2
+ Container portal-lb-web2-1 Stopped
+
+=== 3. 20 requests with web2 down (expect only 200, no web2)
+#    HTTP   replica  X-Upstream                       time
+1    200    web1     172.20.0.5:8000                  0.007701s
+2    200    web3     172.20.0.6:8000,172.20.0.3:8000  2.008090s
+3    200    web1     172.20.0.5:8000                  0.005005s
+4    200    web3     172.20.0.6:8000,172.20.0.3:8000  2.007509s
+5    200    web1     172.20.0.5:8000                  0.004649s
+6    200    web3     172.20.0.3:8000                  0.004555s
+7    200    web1     172.20.0.5:8000                  0.005124s
+8    200    web3     172.20.0.3:8000                  0.004633s
+9    200    web1     172.20.0.5:8000                  0.004386s
+10   200    web3     172.20.0.3:8000                  0.004492s
+11   200    web1     172.20.0.5:8000                  0.005078s
+12   200    web3     172.20.0.3:8000                  0.004407s
+13   200    web1     172.20.0.5:8000                  0.004475s
+14   200    web3     172.20.0.3:8000                  0.004065s
+15   200    web1     172.20.0.5:8000                  0.004686s
+16   200    web3     172.20.0.3:8000                  0.004650s
+17   200    web1     172.20.0.5:8000                  0.004673s
+18   200    web3     172.20.0.3:8000                  0.005313s
+19   200    web1     172.20.0.5:8000                  0.005229s
+20   200    web3     172.20.0.3:8000                  0.004687s
+---- summary: 20 requests, non-200: 0
+web1      10  ##########
+web3      10  ##########
+OK: all requests succeeded without web2
+
+=== 4. Nginx log lines about the failed upstream (since 2026-11-09T08:03:03Z)
+2026/11/09 08:03:05 [error] 31#31: *57 upstream timed out (110: Operation timed out) while connecting to upstream, client: 172.21.0.1, server: _, request: "GET /whoami HTTP/1.1", upstream: "http://172.20.0.6:8000/whoami", host: "localhost"
+172.21.0.1 [09/Nov/2026:08:03:05 +0000] "GET /whoami HTTP/1.1" 200 78 rt=2.004 upstream=172.20.0.6:8000, 172.20.0.3:8000 ustatus=504, 200 urt=2.002, 0.002 uct=-, 0.000
+2026/11/09 08:03:07 [warn] 31#31: *60 upstream server temporarily disabled while connecting to upstream, client: 172.21.0.1, server: _, request: "GET /whoami HTTP/1.1", upstream: "http://172.20.0.6:8000/whoami", host: "localhost"
+2026/11/09 08:03:07 [error] 31#31: *60 upstream timed out (110: Operation timed out) while connecting to upstream, client: 172.21.0.1, server: _, request: "GET /whoami HTTP/1.1", upstream: "http://172.20.0.6:8000/whoami", host: "localhost"
+172.21.0.1 [09/Nov/2026:08:03:07 +0000] "GET /whoami HTTP/1.1" 200 78 rt=2.005 upstream=172.20.0.6:8000, 172.20.0.3:8000 ustatus=504, 200 urt=2.003, 0.002 uct=-, 0.000
+
+=== 5. docker compose start web2, wait until healthy
+ Container portal-lb-web2-1 Started
+web2: healthy
+
+=== 6. 20 requests after recovery (expect web2 back)
+---- summary: 20 requests, non-200: 0
+web1       7  #######
+web2       6  ######
+web3       7  #######
+OK: web2 is back in rotation

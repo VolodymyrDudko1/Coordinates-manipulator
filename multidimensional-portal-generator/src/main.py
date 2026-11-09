@@ -1,10 +1,14 @@
 import asyncio
 import logging
+import os
+import random
+import socket
+import time
 from concurrent.futures import ProcessPoolExecutor
 from math import cos, isfinite, radians, sin, tan
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select, text
@@ -27,6 +31,18 @@ app = FastAPI(title="Multidimensional Portal Generator API", debug=settings.DEBU
 cpu_executor = ProcessPoolExecutor()
 G_CONSTANT = 6.67430e-11
 MAX_COORDINATE_MAGNITUDE = 1e12
+HOSTNAME = socket.gethostname()
+# Replica name for load-balancing demos (web1/web2/web3 in docker-compose.lb.yml);
+# falls back to the container hostname when the variable is not set.
+INSTANCE_NAME = os.getenv("INSTANCE_NAME") or HOSTNAME
+
+
+@app.middleware("http")
+async def served_by_header(request: Request, call_next):
+    """Tag every response with the replica that produced it (X-Served-By)."""
+    response = await call_next(request)
+    response.headers["X-Served-By"] = INSTANCE_NAME
+    return response
 
 
 @app.exception_handler(Exception)
@@ -178,6 +194,33 @@ async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> JSONResponse:
             content={"status": "error", "database": "unavailable"},
         )
     return JSONResponse(content={"status": "ok", "database": "ok"})
+
+
+@app.get("/whoami", tags=["service"])
+async def whoami(request: Request) -> dict[str, Any]:
+    """Which replica answered (load-balancing demos)."""
+    return {
+        "hostname": HOSTNAME,
+        "instance_id": INSTANCE_NAME,
+        "pid": os.getpid(),
+        "client": request.client.host if request.client else None,
+    }
+
+
+@app.get("/slow", tags=["service"])
+async def slow(
+    min_ms: Annotated[int, Query(ge=0, le=5000)] = 100,
+    max_ms: Annotated[int, Query(ge=0, le=5000)] = 1000,
+) -> dict[str, Any]:
+    """Uneven-duration request for comparing balancing algorithms.
+
+    The sleep is intentionally *blocking*: like the bcrypt hashing measured in
+    Lab 4, it occupies the replica's single worker, so requests queue up per
+    replica. That queueing is what least_conn can avoid and round robin cannot.
+    """
+    delay = random.uniform(min_ms, max(min_ms, max_ms)) / 1000
+    time.sleep(delay)  # noqa: ASYNC251 - deliberate, see docstring
+    return {"instance_id": INSTANCE_NAME, "slept_ms": round(delay * 1000)}
 
 
 @app.on_event("shutdown")

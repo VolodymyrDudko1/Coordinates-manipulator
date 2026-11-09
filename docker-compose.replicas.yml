@@ -1,0 +1,76 @@
+# Lab 6 (optional variant) — the same balancer, but replicas via deploy.replicas
+# instead of explicit web1..web3. Nginx discovers them through Docker DNS.
+#
+#   docker compose -f docker-compose.replicas.yml up --build -d --wait
+#   python3 scripts/rr_test.py --url http://localhost:8081/whoami
+#   docker compose -f docker-compose.replicas.yml up -d --scale web=5 --no-recreate
+#
+# Trade-off vs web1..3: instance names are container hostnames (no INSTANCE_NAME per
+# replica) and you cannot `stop` a single replica by service name.
+
+name: portal-replicas
+
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: {context: ., dockerfile: Dockerfile}
+    image: portal-web:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}
+      RUN_MIGRATIONS: 1
+    command: ["echo", "migrate: done"]
+    depends_on: {db: {condition: service_healthy}}
+    networks: [backend]
+    restart: "no"
+
+  web:
+    image: portal-web:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      WEB_CONCURRENCY: 1
+      RUN_MIGRATIONS: 0
+      FORWARDED_ALLOW_IPS: "*"
+      # no INSTANCE_NAME -> /whoami and X-Served-By report the container hostname
+    deploy:
+      replicas: 3
+      resources:
+        limits: {cpus: "${WEB_CPUS:-1.0}", memory: "${WEB_MEM:-512m}"}
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports: ["${REPLICAS_LB_PORT:-8081}:80"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/upstreams/dns_replicas.conf:/etc/nginx/upstream.conf:ro
+    depends_on: {web: {condition: service_healthy}}
+    networks: [frontend, backend]
+    restart: unless-stopped
+
+networks:
+  backend: {internal: true}
+  frontend: {}
+
+volumes:
+  pgdata:

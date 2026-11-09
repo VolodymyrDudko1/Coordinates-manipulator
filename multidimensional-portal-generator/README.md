@@ -580,3 +580,360 @@ mounts і reload.
 6. `docker images portal-web` — порівняння розмірів (before / single-stage / multi-stage).
 7. Hot reload: лог `StatReload detected changes … Reloading…` і `curl` до/після зміни.
 8. (опційно) `docker compose exec web id` → `uid=999(app)`; `.env` у `git status` відсутній (ignored).
+
+---
+
+## Лабораторна робота 6 — Балансування навантаження з Nginx
+
+**Мета:** Nginx як reverse proxy і балансувальник навантаження перед кількома ідентичними репліками
+backend, рівномірний розподіл трафіку, відмовостійкість і порівняння продуктивності 1 vs 3 репліки.
+
+### 6.1 Архітектура
+
+```text
+ client (curl / browser / Locust)
+        │  :80  — єдиний опублікований порт
+        ▼
+ ┌──────────────┐   network: frontend
+ │ nginx:alpine │   nginx.conf (ro) + upstreams/${LB_ALGO}.conf (ro)
+ └──────┬───────┘
+        │ upstream backend  (round robin | weighted | least_conn | ip_hash)
+        │ network: backend (internal: true)
+   ┌────┼──────────────┬───────────────┐
+   ▼    ▼              ▼               │
+ ┌──────────┐   ┌──────────┐   ┌──────────┐      ┌──────────────┐
+ │ web1     │   │ web2     │   │ web3     │      │ migrate      │ one-off: alembic upgrade head
+ │ gunicorn │   │ gunicorn │   │ gunicorn │      └──────┬───────┘ → exit 0, потім стартують web1..3
+ │ 1 worker │   │ 1 worker │   │ 1 worker │             │
+ │ 1 CPU    │   │ 1 CPU    │   │ 1 CPU    │             │
+ │ 512 MB   │   │ 512 MB   │   │ 512 MB   │             │
+ └────┬─────┘   └────┬─────┘   └────┬─────┘             │
+      └──────────────┴──────┬───────┴───────────────────┘
+                            ▼
+                   ┌──────────────────┐
+                   │ db               │ postgres:16-alpine ── volume pgdata
+                   └──────────────────┘
+```
+
+Файли: `docker-compose.lb.yml` (окремий проєкт `portal-lb`, стек ЛР 5 `docker-compose.yml` не змінено),
+`nginx/nginx.conf`, `nginx/upstreams/*.conf`, `scripts/rr_test.sh`, `scripts/rr_test.py`,
+`scripts/failover_test.sh`, `load-tests/run_lab6_compare.sh`, `load-tests/compare_report.py`,
+опційно `docker-compose.replicas.yml` + `nginx/upstreams/dns_replicas.conf`.
+
+### 6.2 Репліки (docker-compose.lb.yml)
+
+- **web1, web2, web3** — явні сервіси з одного YAML-якоря `x-web` / `x-web-env` (без копіювання):
+  однаковий образ `portal-web:latest`, `.env`, healthcheck `/health`, ліміти `cpus: 1.0`,
+  `mem_limit: 512m` (змінні `WEB_CPUS`, `WEB_MEM`). Відрізняється лише `INSTANCE_NAME`.
+  Явні сервіси замість `deploy.replicas` дають стабільні імена в демо (`docker compose stop web2`).
+- **Без `ports:` і без `container_name:`** — репліки доступні лише через Nginx у внутрішній мережі.
+- **Міграції рівно один раз:** сервіс `migrate` (той самий образ, `RUN_MIGRATIONS=1`, команда
+  `echo`) виконує wait-for-db → `alembic upgrade head` і завершується з кодом 0; репліки мають
+  `RUN_MIGRATIONS=0` і `depends_on: migrate: condition: service_completed_successfully` — гонки
+  трьох `alembic upgrade` за одну таблицю `alembic_version` немає. У логах `web1..3` рядків alembic немає.
+- **1 gunicorn-воркер на контейнер** (`WEB_CONCURRENCY: 1`): кожна репліка = один процес, тож
+  розподіл у `/whoami` однозначний, а ліміт CPU контейнера відповідає рівно одному воркеру.
+  Масштабування відбувається кількістю реплік, а не воркерів.
+- **Ідентифікація сервера:**
+  - `GET /whoami` → `{"hostname": "1b5d7fbf2ecd", "instance_id": "web1", "pid": 7, "client": "172.21.0.1"}`
+    (`socket.gethostname()`, `INSTANCE_NAME`, `os.getpid()`, IP клієнта з `X-Forwarded-For`);
+  - middleware додає заголовок `X-Served-By: web1` до кожної відповіді;
+  - `FORWARDED_ALLOW_IPS="*"` — gunicorn довіряє `X-Forwarded-*` від Nginx (репліки недоступні ззовні).
+- `GET /slow?min_ms=100&max_ms=1000` — запит випадкової тривалості для порівняння алгоритмів
+  (блокуючий `sleep`, як bcrypt із ЛР 4: займає єдиний воркер репліки).
+
+### 6.3 Конфігурація Nginx — директиви
+
+| Директива | Значення | Навіщо |
+|---|---|---|
+| `worker_processes auto` | = кількість ядер | паралельна обробка з'єднань |
+| `log_format upstreamlog … $upstream_addr $upstream_status $upstream_response_time $upstream_connect_time` | | у access-лозі видно, яка репліка обробила запит, і всі спроби при failover |
+| `include /etc/nginx/upstream.conf` | файл `upstreams/${LB_ALGO}.conf` | алгоритм перемикається змінною, `nginx.conf` не змінюється |
+| `resolver 127.0.0.11 valid=5s` + `server webN:8000 resolve` | Docker DNS | IP реплік перечитуються кожні 5 с. **Перевірено:** після `stop/start` web2 отримав новий IP (172.20.0.4 → 172.20.0.7), а старий зайняв інший контейнер — без `resolve` Nginx слав би «web2»-трафік не туди. Також Nginx стартує, навіть якщо репліка лежить |
+| `zone backend 64k` | спільна пам'ять | позиція round robin, лічильники помилок і активних з'єднань спільні для всіх worker-процесів Nginx (без неї кожен воркер крутив би свій RR — розподіл не був би 7/7/6) |
+| `server … max_fails=2 fail_timeout=10s` | пасивний health check | 2 невдалі спроби за 10 с → сервер виключено на 10 с |
+| `keepalive 32` + `proxy_http_version 1.1` + `Connection ""` | | повторне використання TCP-з'єднань до реплік |
+| `add_header X-Upstream $upstream_addr always` | | клієнт бачить IP:port репліки (і ланцюжок при retry) |
+| `proxy_set_header Host / X-Real-IP / X-Forwarded-For / X-Forwarded-Proto` | | реальний клієнт, хост і схема для застосунку |
+| `proxy_connect_timeout 2s` | | мертва репліка виявляється за 2 с |
+| `proxy_send_timeout 30s`, `proxy_read_timeout 60s` | | живий, але зайнятий backend (черга bcrypt) має до 60 с — як таймаут клієнта Locust |
+| `proxy_next_upstream error timeout http_502 http_503 http_504` | | на яких помилках пробувати наступний сервер (і що вважати «fail» для `max_fails`) |
+| `proxy_next_upstream_tries 2`, `proxy_next_upstream_timeout 10s` | | не більше 2 спроб і 10 с на запит |
+| `location = /nginx-health` | `return 200` | healthcheck самого Nginx у compose |
+
+Неідемпотентні запити (POST) Nginx за замовчуванням **не** повторює, якщо запит уже дійшов до
+backend, — реєстрація чи симуляція не виконається двічі.
+
+### 6.4 Запуск
+
+```bash
+docker compose stop                                    # стек ЛР 5 (не обов'язково, але звільняє CPU)
+docker compose -f docker-compose.lb.yml up --build -d --wait
+docker compose -f docker-compose.lb.yml ps
+curl -i http://localhost/whoami
+```
+
+```console
+NAME                  STATUS                          PORTS
+portal-lb-db-1        Up 19 minutes (healthy)         5432/tcp
+portal-lb-migrate-1   Exited (0) About a minute ago
+portal-lb-nginx-1     Up 5 minutes (healthy)          0.0.0.0:80->80/tcp, [::]:80->80/tcp
+portal-lb-web1-1      Up 5 minutes (healthy)          8000/tcp
+portal-lb-web2-1      Up 5 minutes (healthy)          8000/tcp
+portal-lb-web3-1      Up 5 minutes (healthy)          8000/tcp
+```
+
+```console
+$ curl -i http://localhost/whoami
+HTTP/1.1 200 OK
+x-served-by: web1
+X-Upstream: 172.20.0.5:8000
+{"hostname":"1b5d7fbf2ecd","instance_id":"web1","pid":7,"client":"172.21.0.1"}
+```
+
+Порт хоста — `LB_PORT` (за замовчуванням 80). Зупинка: `docker compose -f docker-compose.lb.yml down`
+(`-v` — разом із томом).
+
+### 6.5 Round Robin
+
+Round Robin — алгоритм за замовчуванням (жодної директиви в `upstream`): запити по черзі
+web1 → web2 → web3 → web1 …, сервери, позначені як недоступні, пропускаються.
+
+```console
+$ scripts/rr_test.sh            # або: python3 scripts/rr_test.py
+#    HTTP   replica  X-Upstream                       time
+1    200    web2     172.20.0.4:8000                  0.006348s
+2    200    web3     172.20.0.3:8000                  0.007649s
+3    200    web1     172.20.0.5:8000                  0.005410s
+4    200    web2     172.20.0.4:8000                  0.005100s
+…
+20   200    web3     172.20.0.3:8000                  0.009773s
+---- summary: 20 requests, non-200: 0
+web1       6  ######
+web2       7  #######
+web3       7  #######
+```
+
+Повний вивід: `load-tests/results/lab6_demo_rr.txt`.
+
+### 6.6 Failover і health checks
+
+```bash
+scripts/failover_test.sh            # [victim=web2] [stop|kill]; exit 0 = усі перевірки пройдено
+```
+
+Скрипт: RR з трьома репліками → `docker compose stop web2` → 20 запитів → логи Nginx →
+`docker compose start web2` → очікування healthy (+11 с: DNS 5 с і `fail_timeout` 10 с) → 20 запитів.
+Фрагмент реального виводу (повністю — `load-tests/results/lab6_demo_failover.txt`):
+
+```console
+=== 3. 20 requests with web2 down (expect only 200, no web2)
+#    HTTP   replica  X-Upstream                       time
+1    200    web1     172.20.0.5:8000                  0.007701s
+2    200    web3     172.20.0.6:8000,172.20.0.3:8000  2.008090s   ← спроба на web2, connect timeout 2 с, retry на web3
+3    200    web1     172.20.0.5:8000                  0.005005s
+4    200    web3     172.20.0.6:8000,172.20.0.3:8000  2.007509s   ← друга невдача → max_fails=2
+5    200    web1     172.20.0.5:8000                  0.004649s
+6    200    web3     172.20.0.3:8000                  0.004555s   ← web2 вже виключено
+…
+---- summary: 20 requests, non-200: 0
+web1      10  ##########
+web3      10  ##########
+OK: all requests succeeded without web2
+
+=== 4. Nginx log lines about the failed upstream
+[error] upstream timed out (110: Operation timed out) while connecting to upstream, … upstream: "http://172.20.0.6:8000/whoami"
+"GET /whoami HTTP/1.1" 200 78 rt=2.004 upstream=172.20.0.6:8000, 172.20.0.3:8000 ustatus=504, 200 urt=2.002, 0.002
+[warn]  upstream server temporarily disabled while connecting to upstream, … upstream: "http://172.20.0.6:8000/whoami"
+
+=== 6. 20 requests after recovery (expect web2 back)
+web1       7  #######
+web2       6  ######
+web3       7  #######
+OK: web2 is back in rotation
+```
+
+Клієнт не отримав жодної 5xx: Nginx сам повторив запит на іншій репліці (`ustatus=504, 200`); ціна —
++2 с (`proxy_connect_timeout`) для двох запитів, доки спрацював `max_fails`.
+
+**Пасивні vs активні перевірки.** Open-source Nginx має лише **пасивні** health checks: про
+несправність він дізнається з реальних клієнтських запитів (помилка/таймаут → лічильник
+`max_fails`), а через `fail_timeout` знову пробує сервер «наосліп». **Активні** перевірки
+(Nginx сам періодично опитує `/health` і виключає сервер до того, як на нього прийде клієнт) —
+директива `health_check` у **Nginx Plus** або сторонні модулі (`nginx_upstream_check_module`,
+OpenResty `lua-resty-upstream-healthcheck`); альтернатива — HAProxy/Traefik/Envoy.
+Docker healthcheck (`/health` з `SELECT 1`) — **доповнення**: він не впливає на маршрутизацію Nginx
+напряму, але керує `depends_on: service_healthy` (Nginx стартує лише після реплік) і показує стан у
+`docker compose ps`; разом із `resolve` зупинений контейнер зникає з DNS і за ≤5 с — з upstream.
+
+### 6.7 Альтернативні алгоритми
+
+Перемикання — змінна `LB_ALGO` (монтується `nginx/upstreams/${LB_ALGO}.conf`), репліки не
+перезапускаються:
+
+```bash
+LB_ALGO=weighted   docker compose -f docker-compose.lb.yml up -d nginx
+LB_ALGO=least_conn docker compose -f docker-compose.lb.yml up -d nginx
+LB_ALGO=ip_hash    docker compose -f docker-compose.lb.yml up -d nginx
+docker compose -f docker-compose.lb.yml up -d nginx          # назад до round_robin
+```
+
+| Файл | Алгоритм | Коли застосовувати |
+|---|---|---|
+| `round_robin.conf` | по черзі | однакові репліки, однакові запити |
+| `weighted.conf` | `weight=3/1/1` | репліки різної потужності, canary-реліз |
+| `least_conn.conf` | `least_conn;` — найменше активних запитів | дуже різна тривалість запитів |
+| `ip_hash.conf` | `ip_hash;` — хеш IP клієнта | «липкі» сесії без cookies |
+| `single.conf` | лише web1 | базова лінія для навантажувального порівняння |
+
+**Weighted Round Robin (3:1:1)** — `load-tests/results/lab6_demo_weighted.txt`:
+
+```console
+$ LB_ALGO=weighted docker compose -f docker-compose.lb.yml up -d nginx && scripts/rr_test.sh
+1 web1, 2 web3, 3 web1, 4 web2, 5 web1, 6 web1, 7 web3, 8 web1, 9 web2, 10 web1, …
+---- summary: 20 requests, non-200: 0
+web1      12  ############          60 %
+web2       4  ####                  20 %
+web3       4  ####                  20 %
+```
+
+Рівно 60/20/20: Nginx використовує «smooth weighted RR» — web1 не отримує 3 запити поспіль, а
+чергується з іншими.
+
+**ip_hash** — `load-tests/results/lab6_demo_ip_hash.txt`: усі 20 запитів з хоста → `web3`
+(`web3 20 ####################`). Запити з іншого контейнера (`client: 172.21.0.3`) — теж `web3`:
+для IPv4 хешуються лише **перші 3 октети**, а всі клієнти Docker-мережі (і всі клієнти за одним
+NAT) лежать в одній /24. Тобто «липкість» є, але рівномірності немає; для реальних сесій краще
+`hash $cookie_session consistent` або stateless JWT (як у цьому API — сесій на сервері немає взагалі).
+
+**least_conn vs Round Robin** — 120 запитів `GET /slow` (100–1000 мс, блокуюча робота),
+6 паралельних клієнтів, по 2 прогони (`load-tests/results/lab6_demo_least_conn.txt`):
+
+```bash
+python3 scripts/rr_test.py --url http://localhost/slow -n 120 -c 6 --quiet
+```
+
+| Алгоритм | Розподіл | Throughput, req/s | avg, мс | p95, мс | max, мс |
+|---|---|---:|---:|---:|---:|
+| round_robin #1 | 40 / 40 / 40 | 4.70 | 1 250 | 2 459 | 3 452 |
+| round_robin #2 | 40 / 40 / 40 | 5.11 | 1 139 | 2 312 | 3 396 |
+| least_conn #1 | 39 / 42 / 39 | 5.30 | 1 102 | 1 643 | 1 994 |
+| least_conn #2 | 41 / 40 / 39 | 5.53 | 1 049 | 1 691 | 1 842 |
+
+Round Robin розподіляє запити рівно 40/40/40 незалежно від того, що репліка ще зайнята довгим
+запитом, — нові запити стають у чергу за ним. `least_conn` віддає запит репліці з найменшою
+кількістю активних запитів, тож довгі запити не накопичуються на одній: **p95 −30 %, max −45 %,
+throughput +8…13 %** при майже тому самому розподілі кількості.
+
+**Варіант з `deploy.replicas` (перевірено):**
+
+```bash
+docker compose -f docker-compose.replicas.yml up --build -d --wait     # nginx на :8081
+python3 scripts/rr_test.py --url http://localhost:8081/whoami -n 12 --quiet
+docker compose -f docker-compose.replicas.yml up -d --scale web=5 --no-recreate --wait
+```
+
+Один сервіс `web` з `deploy.replicas: 3`; upstream `server web:8000 resolve;` — Docker DNS
+(`127.0.0.11`) повертає IP усіх контейнерів, Nginx робить з кожного A-запису окремий peer. Результат:
+3 репліки по 4/4/4 запити, після `--scale web=5` — 5 реплік по 4 запити **без перезавантаження Nginx**.
+Мінуси: імена реплік — hostname контейнерів, не можна зупинити одну репліку за іменем сервісу.
+
+### 6.8 Порівняльне навантажувальне тестування: 1 vs 3 репліки
+
+Сценарій — `load-tests/locustfile.py` з ЛР 4 без змін. Профіль — базовий з ЛР 4: **50 VUsers,
+spawn 5/с, 3 хв**, `wait_time = between(1, 3)`. Обидва прогони — через той самий Nginx
+(`LB_ALGO=single` → лише web1, web2/web3 зупинені; потім `round_robin` → 3 репліки), однакові ліміти
+**1 CPU / 512 MB на репліку**, перед кожним прогоном репліки перезапускаються. 100 VUsers не
+обрано свідомо: у ЛР 4 навіть необмежений один інстанс при 100 VU колапсував (≈95 % помилок), і
+порівнювати колапс з колапсом не має сенсу.
+
+```bash
+cd load-tests
+./run_lab6_compare.sh 50 5 3m        # → results/lab6_single_*, results/lab6_lb3_* (+ resources, backend logs)
+.venv/bin/python compare_report.py   # → results/lab6_compare_*.png, lab6_compare_summary.csv, lab6_compare.md
+```
+
+| Метрика | 1 репліка | 3 репліки (RR) | 3 / 1 |
+|---|---:|---:|---:|
+| Запитів за прогін | 1082 | 2336 | ×2.16 |
+| RPS (середнє за тест) | 5.8 | 12.4 | ×2.15 |
+| RPS (плато) | 6.3 | 14.1 | ×2.24 |
+| **RPS, останні 60 с** | 6.8 | 17.1 | **×2.52** |
+| **p95, останні 60 с, мс** | 60 000 | 1 300 | ×0.02 |
+| **Помилки, останні 60 с, %** | 6.62 | 0.97 | — |
+| Avg, мс | 5 715 | 1 838 | ×0.32 |
+| Median, мс | 650 | 24 | ×0.04 |
+| p95, мс | 33 000 | 6 000 | ×0.18 |
+| p95 на плато, мс | 25 000 | 1 300 | ×0.05 |
+| p99 / Max, мс | 60 000 / 60 003 | 60 000 / 60 005 | ×1.00 |
+| Помилки за весь тест, % | 7.21 | 12.03 | — |
+| CPU реплік разом, avg / max % | 77 / 104 | 108 / 308 | — |
+| CPU на одну репліку, avg % | 77 | 36 | — |
+| CPU PostgreSQL, avg / max % | 4 / 23 | 5 / 24 | — |
+| CPU Nginx, max % | 4.6 | 6.1 | — |
+| RAM репліки, max МБ | 171 | 170 | — |
+
+По ендпоінтах (1 репліка / 3 репліки):
+
+| Ендпоінт | Запитів | Avg, мс | p95, мс | Помилок |
+|---|---:|---:|---:|---:|
+| `/admin/dashboard (expect 403)` | 71 / 161 | 3 237 / 993 | 19 000 / 1 100 | 2 / 26 |
+| `/auth/login` | 140 / 207 | 8 399 / 3 590 | 35 000 / 7 500 | 26 / 25 |
+| `/auth/register` | 76 / 50 | 30 321 / 8 011 | 37 000 / 12 000 | 26 / 0 |
+| `/simulations/run [coordinates]` | 78 / 145 | 3 794 / 2 057 | 27 000 / 2 100 | 3 / 16 |
+| `/simulations/run [geodesic]` | 283 / 627 | 2 898 / 2 232 | 13 000 / 3 200 | 7 / 83 |
+| `/users/[id]` | 61 / 161 | 3 050 / 770 | 7 300 / 1 900 | 2 / 14 |
+| `/users/me` | 373 / 985 | 3 141 / 1 185 | 13 000 / 1 200 | 12 / 117 |
+
+![RPS: 1 vs 3 репліки](../load-tests/results/lab6_compare_rps.png)
+![p95: 1 vs 3 репліки](../load-tests/results/lab6_compare_p95.png)
+![CPU: 1 vs 3 репліки](../load-tests/results/lab6_compare_resources.png)
+
+HTML-звіти Locust: `load-tests/results/lab6_single.html`, `load-tests/results/lab6_lb3.html`.
+
+### 6.9 Висновки
+
+1. **Прискорення ×2.2–2.5 за пропускною здатністю** на 3 репліках (×2.16 за кількістю запитів,
+   ×2.52 у сталому режимі останніх 60 с), а латентність знизилась на порядок: медіана 650 → 24 мс,
+   p95 у сталому режимі ~60 с (таймаути) → 1.3 с, помилки в сталому режимі 6.6 % → 1.0 %.
+   Усі 50 реєстрацій на 3 репліках пройшли (0 помилок), на одній — 26 з 76 спроб завершились 502/500.
+2. **Де вузьке місце.** На одній репліці — **CPU репліки**: 100 % ліміту (1 ядро) перші ~90 с, поки
+   розбирається черга bcrypt-реєстрацій (див. ЛР 4: bcrypt синхронно блокує event loop). На трьох
+   репліках CPU усіх трьох упирається в ліміт (300 %) лише під час ramp-up, далі в середньому 36 % на
+   репліку. **PostgreSQL (≤ 24 %, у середньому ~5 %) і Nginx (≤ 6 % одного ядра) не є вузьким
+   місцем** — запас у них великий. Тобто bottleneck залишився в застосунку (CPU-важка автентифікація
+   в одному потоці), просто тепер його «три копії».
+3. **Чому менше ніж ×3:**
+   - *Закрита модель навантаження.* 50 VUsers з паузою 1–3 с можуть згенерувати щонайбільше
+     ~50 / (2 с + latency) ≈ 20–25 RPS; 3 репліки під кінець тесту виходять на ~21 RPS (графік RPS),
+     тобто впираються вже в сам генератор навантаження, а не в сервер.
+   - *Ramp-up шторм bcrypt.* 50 реєстрацій + 50 логінів за перші 10 с стають у чергу на кожній
+     репліці незалежно від кількості реплік; перші ~90 с обидва прогони «розгрібають» цю чергу.
+   - *Каскад пасивних health checks.* 265 з 281 помилок 3-реплікового прогону — в одному
+     30-секундному вікні (90–120 с): черга bcrypt на всіх репліках одночасно довела частину запитів
+     до `proxy_read_timeout` (45× `upstream timed out`), `max_fails=2` тимчасово виключив **усі три**
+     живі, але перевантажені репліки (37× `temporarily disabled`), і Nginx 232 рази відповів миттєвим
+     `502 no live upstreams`. Це і є причина вищого відсотка помилок «за весь тест» (12 % vs 7 %) —
+     швидкі 502 ще й роздувають RPS у цьому вікні. Пасивні перевірки добре ловлять мертву репліку
+     (failover-демо), але під перевантаженням виключають здорові сервери.
+   - *Oversubscription CPU в контейнері.* `os.cpu_count()` у контейнері = 8, а не 1 (ліміт `cpus`
+     — це квота CFS, а не кількість ядер), тож `ProcessPoolExecutor()` у кожній репліці запускає
+     **8 процесів** (перевірено: 10 процесів на контейнер = master + worker + 8) на 1 ядро квоти;
+     обчислення траєкторій конкурують з event loop і спричиняють throttling.
+4. **Наступні кроки:** винести bcrypt з event loop (`run_in_threadpool`) — головний резерв і для
+   однієї репліки; обмежити пул `ProcessPoolExecutor(max_workers=…)` за квотою CPU; `least_conn`
+   замість RR (див. 6.7 — саме цей профіль «дешеві + дуже дорогі запити»); для `max_fails` не
+   рахувати read-timeout перевантаженого сервера (окремий `location` для повільних ендпоінтів з
+   власними `proxy_next_upstream`/таймаутами) або активні health checks; генератор навантаження
+   на окремій машині й більше VUsers, щоб знайти стелю 3 реплік.
+
+### 6.10 Скріншоти для звіту
+
+1. `docker compose -f docker-compose.lb.yml ps` — db/web1..3/nginx `(healthy)`, `migrate Exited (0)`, опубліковано лише `80`.
+2. `docker compose -f docker-compose.lb.yml logs migrate` (міграція один раз) і `curl -i http://localhost/whoami` із заголовками `X-Served-By` / `X-Upstream`.
+3. `scripts/rr_test.sh` — 20 запитів і підсумок 7/7/6.
+4. `scripts/failover_test.sh` — блоки 3 (усі 200, лише web1/web3, рядки з `2.0s` і двома upstream), 4 (лог Nginx: `upstream timed out`, `temporarily disabled`, `ustatus=504, 200`) і 6 (web2 повернувся).
+5. `LB_ALGO=weighted …` + `scripts/rr_test.sh` — 12/4/4.
+6. `LB_ALGO=ip_hash …` — 20/20 на одну репліку; `LB_ALGO=least_conn` vs `round_robin` — вивід `rr_test.py … /slow -c 6`.
+7. Таблиця порівняння (`load-tests/results/lab6_compare.md` або вивід `compare_report.py`) і три графіки `lab6_compare_*.png`.
+8. (опційно) `docker-compose.replicas.yml`: `--scale web=5` і розподіл 5 × 4.

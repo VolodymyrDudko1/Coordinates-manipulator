@@ -16,3 +16,6 @@ keepalive = 5
 accesslog = "-"  # stdout -> `docker compose logs web`
 errorlog = "-"
 loglevel = os.getenv("LOG_LEVEL", "info")
+# Trust X-Forwarded-For/-Proto only from these proxies. Behind Nginx (Lab 6) the
+# replicas are reachable only on the internal network, so "*" is safe there.
+forwarded_allow_ips = os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1")

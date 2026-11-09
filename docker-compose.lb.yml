@@ -1,0 +1,128 @@
+# Lab 6 — Nginx load balancer in front of 3 identical replicas.
+#
+#   docker compose -f docker-compose.lb.yml up --build -d --wait
+#   curl -i http://localhost/whoami
+#
+#   client ──► nginx:80 ──► upstream backend [web1, web2, web3] ──► db (postgres) ── volume pgdata
+#
+# Only Nginx publishes a port. Balancing algorithm = nginx/upstreams/${LB_ALGO}.conf:
+#   LB_ALGO=least_conn docker compose -f docker-compose.lb.yml up -d nginx    # switch at runtime
+#
+# Separate project ("portal-lb", own volume) so the Lab 5 single-instance stack
+# (docker-compose.yml) keeps working as before. Stop one before load-testing the other.
+
+name: portal-lb
+
+# --- shared definition of an app replica (YAML anchor, no copy-paste) -------------
+x-web-env: &web-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@db:5432/${POSTGRES_DB:?set in .env}
+  PORT: 8000
+  # 1 gunicorn worker per container: every replica is exactly one process, so the
+  # distribution seen in /whoami and the per-container CPU limit map 1:1.
+  WEB_CONCURRENCY: 1
+  # Migrations are applied once by the `migrate` service; replicas never race on them.
+  RUN_MIGRATIONS: 0
+  # Replicas are reachable only through Nginx on the internal network -> trust its X-Forwarded-*.
+  FORWARDED_ALLOW_IPS: "*"
+
+x-web: &web
+  image: portal-web:latest
+  env_file: .env
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  networks:
+    - backend
+  # No `ports:` and no `container_name:` — replicas are internal and addressed by service name.
+  # Equal limits for every replica (also for the 1-vs-3 load-test comparison).
+  cpus: ${WEB_CPUS:-1.0}
+  mem_limit: ${WEB_MEM:-512m}
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-off job: wait for DB -> alembic upgrade head -> exit 0. Replicas start after it.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: portal-web:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      RUN_MIGRATIONS: 1
+    command: ["echo", "migrate: done"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+  web1:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web1
+  web2:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web2
+  web3:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web3
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${LB_PORT:-80}:80"          # the only port published to the host
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/upstreams/${LB_ALGO:-round_robin}.conf:/etc/nginx/upstream.conf:ro
+    depends_on:
+      web1:
+        condition: service_healthy
+      web2:
+        condition: service_healthy
+      web3:
+        condition: service_healthy
+    networks:
+      - frontend   # published port
+      - backend    # reaches web1..3
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  backend:
+    internal: true   # db + replicas: no host ports, no internet
+  frontend: {}
+
+volumes:
+  pgdata:

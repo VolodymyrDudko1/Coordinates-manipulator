@@ -1,0 +1,17 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,/simulations/run [geodesic],CatchResponseError('simulation: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),63,2026-11-09T08:12:01Z,2026-11-09T08:12:17Z
+GET,/users/me,CatchResponseError('users/me: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),12,2026-11-09T08:11:48Z,2026-11-09T08:13:18Z
+POST,/simulations/run [coordinates],CatchResponseError('coordinates: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),12,2026-11-09T08:12:03Z,2026-11-09T08:12:16Z
+GET,/users/me,CatchResponseError('users/me: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),101,2026-11-09T08:12:02Z,2026-11-09T08:12:17Z
+POST,/auth/login,CatchResponseError('login: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),5,2026-11-09T08:11:45Z,2026-11-09T08:12:39Z
+POST,/simulations/run [geodesic],CatchResponseError('simulation: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),15,2026-11-09T08:11:44Z,2026-11-09T08:12:45Z
+POST,/simulations/run [coordinates],CatchResponseError('coordinates: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),4,2026-11-09T08:12:06Z,2026-11-09T08:12:58Z
+POST,/simulations/run [geodesic],CatchResponseError('simulation: HTTP 0 ReadTimeout'),5,2026-11-09T08:12:01Z,2026-11-09T08:12:48Z
+POST,/auth/login,CatchResponseError('login: HTTP 0 ReadTimeout'),1,2026-11-09T08:12:43Z,2026-11-09T08:12:43Z
+PUT,/users/[id],CatchResponseError('update user: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),13,2026-11-09T08:12:03Z,2026-11-09T08:12:17Z
+POST,/auth/login,CatchResponseError('login: HTTP 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin'),19,2026-11-09T08:12:03Z,2026-11-09T08:12:17Z
+GET,/admin/dashboard (expect 403),"CatchResponseError('admin: expected 403, got 0 ReadTimeout')",1,2026-11-09T08:11:57Z,2026-11-09T08:11:57Z
+PUT,/users/[id],CatchResponseError('update user: HTTP 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c'),1,2026-11-09T08:12:59Z,2026-11-09T08:12:59Z
+GET,/admin/dashboard (expect 403),"CatchResponseError('admin: expected 403, got 502 <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>ngin')",24,2026-11-09T08:12:01Z,2026-11-09T08:12:17Z
+GET,/users/me,CatchResponseError('users/me: HTTP 0 ReadTimeout'),4,2026-11-09T08:11:42Z,2026-11-09T08:11:54Z
+GET,/admin/dashboard (expect 403),"CatchResponseError('admin: expected 403, got 504 <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><c')",1,2026-11-09T08:11:53Z,2026-11-09T08:11:53Z
