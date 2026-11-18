@@ -183,6 +183,9 @@ LABS_CFG="${LABS_CFG:-${HOME}/.config/portal-labs}"     # локальні се�
 # не можна: перша спроба CLI (gRPC по HTTP/2) обриває kubectl port-forward, і всі наступні команди
 # отримують "connection refused". kubectl port-forward лишається лише для браузера (UI).
 export ARGOCD_OPTS="--port-forward --port-forward-namespace argocd --plaintext"
+# Вбудований port-forward CLI іноді друкує нешкідливе "Error copying from local connection ..."
+# (клієнт закрив з'єднання) — ховаємо лише цей рядок, код виходу argocd не змінюється.
+argocd() { command argocd "$@" 2> >(grep -v 'Error copying from local connection' >&2); }
 
 argocd_installed() { helm status argocd -n argocd >/dev/null 2>&1; }
 argocd_awake() {
