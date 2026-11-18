@@ -187,6 +187,18 @@ l6_traffic 8
 l6_traffic_stop"
 
   step "(Необов'язково) Дашборд Rollouts у браузері" \
-    "http://localhost:3100/rollouts — вкладка dudko-gitops, Rollout portal-api, кнопки Promote/Abort (Ctrl+C — вийти)" \
-    "echo 'У другому терміналі: kubectl argo rollouts dashboard -n ${L5_NS}  ->  http://localhost:3100/rollouts'"
+    "дашборд запускає скрипт (див. перелік UI нижче): кроки canary, ReplicaSet-и, кнопки Promote/Abort" \
+    "lab6_ui"
+}
+
+# UI для lab.sh ui 6 і кінця демо: Argo CD + дашборд Argo Rollouts (локальний процес плагіна).
+L6_DASH_PORT=3100
+lab6_ui() {
+  lab5_ui
+  if ! port_busy "${L6_DASH_PORT}"; then
+    kubectl argo rollouts dashboard -n "${L5_NS}" --port "${L6_DASH_PORT}" >"${DEMO_TMP}/rollouts-dash.log" 2>&1 &
+    BG_PIDS+=("$!")
+    local _; for _ in $(seq 1 40); do port_busy "${L6_DASH_PORT}" && break; sleep 0.25; done
+  fi
+  ui_line "Rollouts dashboard" "http://localhost:${L6_DASH_PORT}/rollouts/rollout/${L5_NS}/${L6_RO}"
 }

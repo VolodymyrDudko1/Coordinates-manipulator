@@ -247,3 +247,15 @@ argocd app wait portal --sync --health --timeout 180
 git log --oneline -3
 l7_load_stop"
 }
+
+# UI для lab.sh ui 7 і кінця демо.
+lab7_ui() {
+  argocd_pf
+  ui_line "Argo CD" "http://localhost:${ARGOCD_PORT}/applications" "admin / $(cat "$(argocd_password_file)")"
+  if l7_pf; then
+    ui_line "Grafana: дашборд" "http://localhost:${L7_GRAFANA_PORT}/d/portal-api-lab7" "admin / $(cat "$(l7_grafana_pw_file)")"
+    ui_line "Grafana: Explore/Loki" "http://localhost:${L7_GRAFANA_PORT}/explore"
+    ui_line "Prometheus" "http://localhost:${L7_PROM_PORT}/targets" "також /alerts, /query"
+  fi
+  ui_line "Застосунок (Ingress)" "http://${L5_HOST}:${INGRESS_PORT}/"
+}

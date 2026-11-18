@@ -117,3 +117,9 @@ kubectl rollout history deployment/portal-api -n dudko"
     "запускати в ОКРЕМОМУ терміналі; Ctrl+C зупиняє" \
     "echo 'В іншому терміналі: ./scripts/client-up.sh lab3   ->  http://localhost:8080/'"
 }
+
+# UI для lab.sh ui 3 і кінця демо: сторінка застосунку через Ingress (port-forward 18080 тримає lab.sh).
+lab3_ui() {
+  ui_line "Застосунок (Ingress)" "http://portal.local:${INGRESS_PORT}/"
+  ui_line "Django-клієнт" "http://localhost:8080/" "окремий термінал: ./scripts/client-up.sh lab3"
+}

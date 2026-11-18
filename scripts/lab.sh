@@ -8,6 +8,7 @@
 #   ./scripts/lab.sh demo 4 --list          лише перелік кроків
 #   ./scripts/lab.sh demo 4 --yes           без пауз (репетиція)
 #   ./scripts/lab.sh up 4 [values-файл]     розгорнути лабораторну в готовому стані (для запитань викладача)
+#   ./scripts/lab.sh ui N                   лише UI лабораторної N (port-forward-и + посилання й паролі), Enter — закрити
 #   ./scripts/lab.sh down [N|all]           вимкнути лабораторну N або всі
 #   ./scripts/lab.sh sleep [--docker]       вимкнути всі лаби й зупинити minikube (звільнити RAM для дзвінка);
 #                                           --docker: якщо активний Docker Desktop — зупинити і його VM
@@ -28,7 +29,25 @@ for f in scripts/labs/lab[0-9]*.sh; do
   n="${f##*/lab}"; LABS+=("${n%.sh}")
 done
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+# Показати UI лабораторної й тримати port-forward-и, доки не натиснуто Enter.
+# (Після виходу скрипта port-forward-и зникають — вкладки браузера перестають відповідати.)
+hold_ui() {
+  echo
+  echo "${C_B}UI — $("lab$1_title"):${C_0}"
+  "lab$1_ui" || true
+  echo
+  read -rp "${C_Y}Port-forward-и працюють. Enter — закрити їх і вийти${C_0} " _ </dev/tty || true
+}
+
+cmd_ui() {
+  local lab="$1"
+  cluster_up || die "minikube зупинено: ./scripts/lab.sh wake"
+  "lab${lab}_is_up" || warn "Lab ${lab} зараз не розгорнута — частина посилань не відповідатиме (./scripts/lab.sh up ${lab})"
+  ingress_pf
+  hold_ui "${lab}"
+}
 
 check_lab() {
   [[ -n "${1:-}" ]] || usage 1
@@ -100,6 +119,8 @@ cmd_demo() {
   ingress_pf
   info "$("lab${lab}_title") — ${#STEP_TITLES[@]} кроків. Браузер/curl через Ingress: http://<host>:${INGRESS_PORT}/"
   run_steps "${from}" "${auto}"
+  # Після останнього кроку (або q) UI не зникають одразу — для запитань викладача. --yes: одразу вихід.
+  [[ ${auto} == 1 ]] || hold_ui "${lab}"
 }
 
 cmd_up() {
@@ -150,6 +171,7 @@ case "${1:-}" in
   status) cmd_status ;;
   demo)   check_lab "${2:-}"; cmd_demo "${@:2}" ;;
   up)     check_lab "${2:-}"; cmd_up "${@:2}" ;;
+  ui)     check_lab "${2:-}"; cmd_ui "$2" ;;
   down)   cmd_down "${2:-all}" ;;
   sleep)  cmd_sleep "${2:-}" ;;
   wake)   cmd_wake ;;

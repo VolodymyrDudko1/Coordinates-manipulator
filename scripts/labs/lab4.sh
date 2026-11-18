@@ -113,3 +113,15 @@ kubectl get pvc ${NS}
 kubectl get secrets ${NS} -l owner=helm
 helm list ${NS}"
 }
+
+# UI для lab.sh ui 4 і кінця демо. dev-профіль без Ingress — тоді port-forward до Service.
+lab4_ui() {
+  local host
+  host=$(kubectl get ingress -n dudko-helm -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null)
+  if [[ -n "${host}" ]]; then
+    ui_line "Застосунок (Ingress)" "http://${host}:${INGRESS_PORT}/" "у /etc/hosts: 127.0.0.1 ${host}"
+  else
+    pf_bg dudko-helm svc/portal-api 18082 80 && ui_line "Застосунок (Service)" "http://localhost:18082/"
+  fi
+  ui_line "Django-клієнт" "http://localhost:8080/" "окремий термінал: ./scripts/client-up.sh lab4"
+}

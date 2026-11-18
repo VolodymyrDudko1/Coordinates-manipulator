@@ -15,12 +15,27 @@
 | `./scripts/lab.sh demo 4 --from 9` | продовжити з кроку 9 (після `q` або питання викладача) |
 | `./scripts/lab.sh demo 3 --yes` | без пауз — репетиція перед захистом (~3 хв на лабу) |
 | `./scripts/lab.sh up 4 [values-файл]` | просто розгорнути лабу в робочому стані |
+| `./scripts/lab.sh ui 7` | лише UI лаби (port-forward-и + посилання й паролі), без кроків; Enter — закрити |
 | `./scripts/lab.sh down [N\|all]` | вимкнути лабу N або всі |
 | `./scripts/lab.sh sleep [--docker]` | вимкнути все й зупинити minikube; `--docker` — ще й Docker Desktop (якщо він активний) |
 | `./scripts/lab.sh wake` | запустити minikube (~1 хв; Docker Desktop — лише якщо активний контекст `desktop-linux`) |
 
 У кожному кроці демо видно команди (`$ ...`) і підказку «Очікую:» — що сказати/показати.
 Клавіші: **Enter** — виконати, **s** — пропустити, **q** — вийти (скрипт підкаже `--from N`).
+
+Після останнього кроку (або **q**) демо друкує перелік UI цієї лаби й **тримає port-forward-и**,
+доки не натиснути Enter, — вкладки браузера працюють і під час запитань викладача. У режимі
+`--yes` виходить одразу. Те саме без кроків: `./scripts/lab.sh ui N`.
+
+| Лаба | UI (port-forward тримає скрипт) |
+|---|---|
+| 3 | застосунок `http://portal.local:18080/`; Django-клієнт — окремо `./scripts/client-up.sh lab3` |
+| 4 | застосунок через Ingress (prod) або `http://localhost:18082/` (dev, без Ingress); клієнт — `client-up.sh lab4` |
+| 5 | Argo CD `http://localhost:18090/` (admin / `~/.config/portal-labs/argocd-admin-password`) |
+| 6 | Argo CD + дашборд Rollouts `http://localhost:3100/rollouts` (запускає скрипт) |
+| 7 | Argo CD, Grafana `:18100` (admin / `~/.config/portal-labs/grafana-admin-password`), Prometheus `:18101` |
+
+Хости Ingress для браузера (один раз): `echo "127.0.0.1 portal-helm.local portal-helm-prod.local portal-gitops.local" | sudo tee -a /etc/hosts`.
 
 Деталі:
 - Запити до застосунку йдуть через `kubectl port-forward` до ingress-nginx на `127.0.0.1:18080`

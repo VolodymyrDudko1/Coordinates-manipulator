@@ -286,3 +286,9 @@ git_check_pushed() {
   local ahead; ahead=$(git rev-list --count "origin/${branch}..HEAD")
   [[ "${ahead}" == 0 ]] || warn "${ahead} коміт(ів) не запушено — Argo CD їх не бачить: git push origin ${branch}"
 }
+
+# ui_line "<назва>" "<url>" ["<вхід>"] — рядок у переліку UI (lab.sh ui N і кінець демо).
+ui_line() {   # вирівнювання за кількістю символів (printf %-22s рахує байти, а кирилиця — 2 байти)
+  local pad=$((22 - ${#1})); ((pad < 1)) && pad=1
+  printf '  %s%*s%s%s\n' "$1" "${pad}" "" "${C_B}$2${C_0}" "${3:+   ($3)}"
+}

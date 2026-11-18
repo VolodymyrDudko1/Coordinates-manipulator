@@ -244,3 +244,10 @@ argocd app wait portal --sync --health --timeout 300
 kubectl rollout status deploy/portal-api ${NS}
 icurl ${L5_HOST} /info"
 }
+
+# UI для lab.sh ui 5 і кінця демо.
+lab5_ui() {
+  argocd_pf
+  ui_line "Argo CD" "http://localhost:${ARGOCD_PORT}/applications/argocd/portal?view=tree" "admin / $(cat "$(argocd_password_file)")"
+  ui_line "Застосунок (Ingress)" "http://${L5_HOST}:${INGRESS_PORT}/" "у /etc/hosts: 127.0.0.1 ${L5_HOST}"
+}
