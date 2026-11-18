@@ -9,7 +9,7 @@ kind: Deployment
 metadata:
   name: {{ include "portal.componentName" (dict "root" $ "component" "db") }}
   labels:
-    {{- include "portal.labels" (dict "root" $ "component" "db") | nindent 4 }}
+    {{- include "portal.labels" (dict "root" $ "component" "db" "version" .Values.postgres.image.tag) | nindent 4 }}
 spec:
   replicas: 1                     # БД завжди одна: дві копії зіпсували б дані на RWO-диску
   strategy:
@@ -20,7 +20,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "portal.labels" (dict "root" $ "component" "db") | nindent 8 }}
+        {{- include "portal.labels" (dict "root" $ "component" "db" "version" .Values.postgres.image.tag) | nindent 8 }}
     spec:
       containers:
         - name: postgres

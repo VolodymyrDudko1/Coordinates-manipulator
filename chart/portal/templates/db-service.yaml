@@ -7,7 +7,7 @@ kind: Service
 metadata:
   name: {{ include "portal.componentName" (dict "root" $ "component" "db") }}
   labels:
-    {{- include "portal.labels" (dict "root" $ "component" "db") | nindent 4 }}
+    {{- include "portal.labels" (dict "root" $ "component" "db" "version" .Values.postgres.image.tag) | nindent 4 }}
 spec:
   type: ClusterIP                 # БД назовні не відкриваємо
   selector:

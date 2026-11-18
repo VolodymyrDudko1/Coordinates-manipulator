@@ -59,14 +59,16 @@ app.kubernetes.io/component: {{ .component }}
 
 {{/*
 portal.labels — повний набір міток для metadata.labels усіх об'єктів.
-Включає selectorLabels + службові мітки Helm. Аргумент такий самий, як у selectorLabels.
+Включає selectorLabels + службові мітки Helm. Аргумент такий самий, як у selectorLabels,
+плюс необов'язковий "version" — для об'єктів БД передаємо тег postgres. Інакше мітка версії
+застосунку потрапила б у шаблон pod-а БД, і кожен upgrade portal-api перезапускав би PostgreSQL.
   quote      => бере значення в лапки (версія "1.0.0" має бути рядком)
   replace    => "+" недопустимий у значенні мітки
 */}}
 {{- define "portal.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "portal.selectorLabels" . }}
-app.kubernetes.io/version: {{ .root.Values.image.tag | default .root.Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ .version | default (.root.Values.image.tag | default .root.Chart.AppVersion) | quote }}
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 app.kubernetes.io/part-of: portal-generator
 {{- end }}
