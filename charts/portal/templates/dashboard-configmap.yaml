@@ -1,0 +1,18 @@
+{{- /*
+Дашборд Grafana як код (Lab 7 п.4): JSON лежить у чарті (files/dashboard.json), а ConfigMap
+з міткою grafana_dashboard: "1" підхоплює sidecar Grafana з будь-якого namespace.
+  .Files.Get           => вміст файлу чарту як рядок
+  replace __NAMESPACE__ => namespace релізу підставляється тут, у JSON його не захардкоджено
+*/}}
+{{- if .Values.monitoring.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "dashboard") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "dashboard") | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  portal-api.json: |-
+    {{- .Files.Get "files/dashboard.json" | replace "__NAMESPACE__" .Release.Namespace | replace "__SERVICE__" (include "portal.componentName" (dict "root" $ "component" "api")) | nindent 4 }}
+{{- end }}

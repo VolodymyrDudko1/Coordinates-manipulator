@@ -1,0 +1,93 @@
+# Lab 7 п.1: Grafana Alloy збирає логи pod-ів dudko-gitops і пише в Loki.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.16.0
+    helm:
+      releaseName: alloy
+      valuesObject:
+        controller:
+          type: deployment
+          replicas: 1
+        alloy:
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          configMap:
+            content: |
+              // Pod-и застосунку (namespace dudko-gitops) -> Loki. Логи читаються через Kubernetes API
+              // (loki.source.kubernetes), тож DaemonSet і hostPath /var/log не потрібні.
+              discovery.kubernetes "pods" {
+                role = "pod"
+                namespaces {
+                  names = ["dudko-gitops"]
+                }
+              }
+
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+                  target_label  = "component"
+                }
+                // Версія образу з мітки pod-а: логи помилок «лише з подів нової версії» (Lab 7 п.6c).
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_version"]
+                  target_label  = "version"
+                }
+              }
+
+              loki.source.kubernetes "pods" {
+                targets    = discovery.relabel.pods.output
+                forward_to = [loki.process.json.receiver]
+              }
+
+              // Застосунок пише JSON: рівень логу -> мітка level (мала кардинальність).
+              // Метод/маршрут/статус лишаються полями рядка: | json | status >= 500
+              loki.process "json" {
+                stage.json {
+                  expressions = { level = "level" }
+                }
+                stage.labels {
+                  values = { level = "" }
+                }
+                forward_to = [loki.write.default.receiver]
+              }
+
+              loki.write "default" {
+                endpoint {
+                  url = "http://loki.monitoring:3100/loki/api/v1/push"
+                }
+              }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

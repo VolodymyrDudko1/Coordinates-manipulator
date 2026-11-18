@@ -33,6 +33,12 @@ spec:
             name: {{ include "portal.secretName" . }}
       env:
         # $(VAR) підставляє kubelet (не Helm!) з уже визначених змінних envFrom.
+        {{- with .Values.failRate }}
+        # Lab 7: частка відповідей 500 «поганої» версії. У spec pod-а (а не в спільному ConfigMap),
+        # тому впливає лише на pod-и нової ревізії Rollout, а stable-pod-и працюють як раніше.
+        - name: FAIL_RATE
+          value: {{ . | quote }}
+        {{- end }}
         - name: DATABASE_URL
           value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
       resources:

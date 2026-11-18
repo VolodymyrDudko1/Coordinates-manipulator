@@ -1,0 +1,25 @@
+{{- /*
+ServiceMonitor (Lab 7 п.2b): Prometheus Operator збирає /metrics з pod-ів за Service portal-api.
+  podTargetLabels => мітки pod-а копіюються в кожен ряд метрик:
+    app.kubernetes.io/version     -> app_kubernetes_io_version   (графіки за версіями)
+    rollouts-pod-template-hash    -> rollouts_pod_template_hash  (AnalysisTemplate міряє ЛИШЕ canary)
+*/}}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "portal.selectorLabels" (dict "root" $ "component" "api") | nindent 6 }}
+  podTargetLabels:
+    - app.kubernetes.io/version
+    - rollouts-pod-template-hash
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}

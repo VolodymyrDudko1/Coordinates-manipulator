@@ -1,0 +1,43 @@
+# envs/minikube/values-lab7.yaml — Lab 7 поверх envs/minikube/values.yaml.
+# Власний тег образу: потрібна версія з /metrics і JSON-логами (>= 1.4.0); релізи Lab 7
+# змінюють ЦЕЙ файл, тому не заважають демо Lab 5/6 (там тег у values.yaml).
+
+image:
+  # Lab 7 п.6c: поганий реліз = tag "1.5.0" + failRate "0.3" одним комітом; відкат — git revert.
+  tag: "1.4.0"
+
+failRate: ""                    # частка відповідей 500 у pod-ах нової версії ("" = вимкнено)
+
+replicaCount: 4
+
+rollout:
+  enabled: true
+  canary:
+    maxSurge: "25%"
+    # Автоматичне рішення за метриками замість ручної паузи (Lab 7 п.6a):
+    # 25% трафіку -> 20 с прогріву -> analysis (частка успішних запитів canary >= 95%, ~1 хв)
+    # -> 50% -> 75% -> 100%. Провал analysis => Argo Rollouts сам робить abort.
+    steps:
+      - setWeight: 25
+      - pause: {duration: 20s}
+      - analysis:
+          templates:
+            - templateName: portal-success-rate
+          args:
+            - name: canary-hash
+              valueFrom:
+                podTemplateHashValue: Latest
+      - setWeight: 50
+      - pause: {duration: 20s}
+      - setWeight: 75
+      - pause: {duration: 20s}
+  analysis:
+    enabled: true
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+  alerts:
+    enabled: true
+  dashboard:
+    enabled: true

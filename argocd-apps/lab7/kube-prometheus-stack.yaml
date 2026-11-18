@@ -1,0 +1,110 @@
+# Lab 7 п.1: Prometheus, Alertmanager, Grafana (+ operator, kube-state-metrics) з Git.
+# Wave -2: CRD ServiceMonitor/PrometheusRule мають існувати до синхронізації portal.
+# Пароль Grafana — Secret grafana-admin у monitoring, створює scripts/labs/lab7.sh поза Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.4.1
+    helm:
+      releaseName: kps
+      valuesObject:
+        # Урізано під minikube: ~0.8–1 GiB замість 2+ GiB за замовчуванням.
+        fullnameOverride: kps                 # короткі імена: kps-prometheus, kps-alertmanager, kps-grafana
+        defaultRules:
+          rules:                        # правила для компонентів, яких у minikube немає / які вимкнено нижче
+            etcd: false
+            kubeControllerManager: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            kubeProxy: false
+            node: false
+            nodeExporterAlerting: false
+            nodeExporterRecording: false
+            windows: false
+
+        kubeEtcd: {enabled: false}              # у minikube ці цілі недоступні — вічні алерти TargetDown
+        kubeControllerManager: {enabled: false}
+        kubeScheduler: {enabled: false}
+        kubeProxy: {enabled: false}
+        nodeExporter: {enabled: false}          # CPU/RAM pod-ів беруться з cAdvisor (kubelet)
+
+        alertmanager:
+          alertmanagerSpec:
+            replicas: 1
+            retention: 2h
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 128Mi}
+
+        prometheusOperator:
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          prometheusConfigReloader:
+            resources:
+              requests: {cpu: 10m, memory: 16Mi}
+              limits: {memory: 64Mi}
+
+        kube-state-metrics:
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+
+        prometheus:
+          prometheusSpec:
+            retention: 2h
+            scrapeInterval: 15s
+            evaluationInterval: 15s
+            # Брати ServiceMonitor / PrometheusRule з будь-якого namespace без мітки release=...
+            # (ServiceMonitor і правило з чарту portal живуть у dudko-gitops).
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            resources:
+              requests: {cpu: 100m, memory: 256Mi}
+              limits: {memory: 1Gi}
+
+        grafana:
+          admin:
+            existingSecret: grafana-admin       # створює scripts/labs/lab7.sh поза Git
+            userKey: admin-user
+            passwordKey: admin-password
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 384Mi}
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard          # ConfigMap з цією міткою (у будь-якому namespace) = дашборд
+              labelValue: "1"
+              searchNamespace: ALL
+            resources:
+              requests: {cpu: 10m, memory: 48Mi}
+              limits: {memory: 128Mi}
+          additionalDataSources:
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki.monitoring:3100
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true            # CRD Prometheus/Alertmanager завеликі для client-side apply

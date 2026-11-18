@@ -95,3 +95,24 @@ rollout:
       - pause: {duration: 30s}
       - setWeight: 75
       - pause: {duration: 20s}
+  # Lab 7: AnalysisTemplate (рендериться, коли enabled; крок analysis додається в steps).
+  analysis:
+    enabled: false
+    prometheusAddress: http://kps-prometheus.monitoring:9090
+    successRate: 0.95           # поріг частки успішних запитів canary
+    interval: 15s
+    count: 4                    # 4 виміри × 15 с ≈ 1 хв
+    failureLimit: 1             # 2-й провал => AnalysisRun Failed => abort
+
+# Lab 7: частка відповідей 500 (поганий реліз). Порожньо => змінна FAIL_RATE не задається.
+failRate: ""
+
+# --- Lab 7: моніторинг (потрібен kube-prometheus-stack: CRD ServiceMonitor, PrometheusRule) ---
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+  alerts:
+    enabled: false              # PrometheusRule PortalHighErrorRate (> 5% 5xx)
+  dashboard:
+    enabled: false              # ConfigMap з міткою grafana_dashboard (files/dashboard.json)

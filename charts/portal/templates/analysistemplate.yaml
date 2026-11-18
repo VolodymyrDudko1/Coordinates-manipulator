@@ -1,0 +1,33 @@
+{{- /*
+AnalysisTemplate (Lab 7 п.6a): частка успішних (не 5xx) запитів до CANARY-pod-ів за останню
+хвилину. Поріг — .Values.rollout.analysis.successRate (0.95). Нижче => AnalysisRun Failed =>
+Rollout сам робить abort і повертає трафік на stable.
+  {{ "{{args.x}}" }} => текст {{args.x}} без змін: його підставляє Argo Rollouts, а не Helm.
+  canary-hash        => передає крок analysis (valueFrom.podTemplateHashValue: Latest).
+  isNaN(...)         => поки запитів ще немає, 0/0 = NaN — не вважати це провалом.
+*/}}
+{{- if .Values.rollout.analysis.enabled }}
+{{- $sel := printf "namespace=\"%s\",service=\"%s\",rollouts_pod_template_hash=\"{{args.canary-hash}}\",route!~\"/health|/ready|/metrics\"" .Release.Namespace (include "portal.componentName" (dict "root" $ "component" "api")) }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "success-rate") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: success-rate
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      successCondition: {{ printf "isNaN(result[0]) || result[0] >= %v" .Values.rollout.analysis.successRate | quote }}
+      provider:
+        prometheus:
+          address: {{ .Values.rollout.analysis.prometheusAddress | quote }}
+          query: |
+            sum(rate(http_requests_total{ {{- $sel -}} ,status!~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{ {{- $sel -}} }[1m]))
+{{- end }}

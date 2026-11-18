@@ -1,0 +1,27 @@
+{{- /*
+PrometheusRule (Lab 7 п.6d*): алерт, якщо частка 5xx у portal-api > 5% протягом 1 хв.
+Під час «поганого» релізу видно в Prometheus -> Alerts і в Alertmanager у стані Firing.
+*/}}
+{{- if .Values.monitoring.alerts.enabled }}
+{{- $sel := printf "namespace=\"%s\",service=\"%s\",route!~\"/health|/ready|/metrics\"" .Release.Namespace (include "portal.componentName" (dict "root" $ "component" "api")) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  groups:
+    - name: portal-api
+      rules:
+        - alert: PortalHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{ {{- $sel -}} ,status=~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{ {{- $sel -}} }[1m])) > 0.05
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "portal-api: частка 5xx {{ "{{ $value | humanizePercentage }}" }} (> 5%)"
+{{- end }}
