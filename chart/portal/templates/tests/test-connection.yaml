@@ -1,0 +1,37 @@
+{{- /*
+Helm test (Task 9, варіант b): Pod, який запускає `helm test <release> -n <namespace>`.
+  "helm.sh/hook": test  => Pod НЕ створюється при install/upgrade, лише при helm test
+  Exit code 0 => тест пройдено, інакше — провалено.
+  hook-delete-policy before-hook-creation => pod лишається після тесту (можна kubectl logs),
+                                             і видаляється перед наступним запуском тесту.
+URL = http://<fullname>-api:<service.port>/health (Service portal-api з service.yaml).
+*/}}
+{{- $url := printf "http://%s:%v/health" (include "portal.componentName" (dict "root" $ "component" "api")) .Values.service.port }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "test-connection") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: "{{ .Values.utilityImage.repository }}:{{ .Values.utilityImage.tag }}"
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "GET {{ $url }}"
+          # -S друкує заголовки відповіді (у stderr), -T 5 — таймаут, тіло відкидаємо.
+          out=$(wget -S -T 5 -O /dev/null "{{ $url }}" 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q "HTTP/1.1 200"; then
+            echo "OK: /health returned 200"
+          else
+            echo "FAIL: /health did not return 200"
+            exit 1
+          fi

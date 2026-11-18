@@ -1,0 +1,20 @@
+{{- /*
+Service застосунку portal-api (аналог k8s/30-service.yaml).
+  .Values.service.type / .Values.service.port => тип і порт Service з values
+  selectorLabels з component "api" => ті самі мітки, що в template Deployment-а
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "portal.selectorLabels" (dict "root" $ "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

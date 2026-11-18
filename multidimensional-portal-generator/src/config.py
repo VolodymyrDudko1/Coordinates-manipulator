@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./portal.db"
     PORT: int = 8000
 
+    # Kubernetes lab: build metadata, config params and a demo secret.
+    APP_VERSION: str = "dev"
+    APP_RELEASE_NOTE: str = "Local development build"
+    APP_GREETING: str = "Hello from the Portal Generator"
+    LOG_LEVEL: str = "INFO"
+    API_KEY: str = ""
+
     model_config = SettingsConfigDict(
         env_file=f".env.{environment}",
         env_file_encoding="utf-8",

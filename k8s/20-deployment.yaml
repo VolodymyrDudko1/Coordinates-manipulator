@@ -1,0 +1,79 @@
+# Deployment застосунку (FastAPI backend). Керує ReplicaSet-ами, які створюють pod-и.
+# Кожна зміна шаблону pod-а (напр. новий образ) => новий ReplicaSet => rolling update.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-api
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-api
+    app.kubernetes.io/part-of: portal-generator
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    # Текст, який показує `kubectl rollout history` у колонці CHANGE-CAUSE.
+    kubernetes.io/change-cause: "Initial deploy: portal-api:1.0.0"
+spec:
+  replicas: 2             # дві копії pod-а => відмовостійкість і балансування навантаження
+  revisionHistoryLimit: 10  # скільки старих ReplicaSet зберігати для `rollout undo`
+  minReadySeconds: 5      # pod має бути Ready 5 с, щоб вважатися доступним (розтягує rollout, видно в логах)
+  strategy:
+    type: RollingUpdate   # оновлюємо pod-и поступово, а не всі разом
+    rollingUpdate:
+      maxUnavailable: 0   # жодного pod-а менше за replicas під час оновлення => нуль простою
+      maxSurge: 1         # можна тимчасово мати replicas+1 pod (спершу новий, потім видаляємо старий)
+  selector:
+    matchLabels:          # мітки, за якими Deployment знаходить "свої" pod-и (незмінне поле)
+      app.kubernetes.io/name: portal-api
+  template:               # шаблон pod-а
+    metadata:
+      labels:
+        app.kubernetes.io/name: portal-api   # МАЄ збігатися з selector і з selector у Service
+        app.kubernetes.io/part-of: portal-generator
+    spec:
+      terminationGracePeriodSeconds: 30  # час на коректне завершення після SIGTERM
+      containers:
+        - name: portal-api
+          image: portal-api:1.0.0        # конкретна версія, ніколи не :latest
+          imagePullPolicy: IfNotPresent  # образ завантажено через `minikube image load`, з registry не тягнемо
+          ports:
+            - name: http                 # ім'я порту використовують probes і Service
+              containerPort: 8000        # uvicorn слухає 8000 (Dockerfile: --port ${PORT:-8000})
+          envFrom:                       # УСІ ключі ConfigMap і Secret => змінні оточення
+            - configMapRef:
+                name: portal-config      # APP_GREETING, LOG_LEVEL, ENVIRONMENT, DEBUG, POSTGRES_*, DB_*
+            - secretRef:
+                name: portal-secret      # POSTGRES_PASSWORD, SECRET_KEY, API_KEY
+          env:
+            # $(VAR) підставляє kubelet із уже визначених змінних (зокрема з envFrom).
+            # Так пароль береться з Secret і не дублюється в маніфесті.
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
+            # APP_VERSION НЕ задаємо тут: вона "вшита" в образ (Dockerfile ARG/ENV),
+            # тому після `kubectl set image` версія на сторінці змінюється сама.
+          resources:
+            requests:                    # гарантований мінімум, за ним планувальник обирає вузол
+              cpu: 100m                  # 0.1 ядра
+              memory: 128Mi
+            limits:                      # стеля: CPU "душиться" (throttling), пам'ять понад ліміт => OOMKilled
+              cpu: 500m
+              memory: 384Mi              # запас під ProcessPoolExecutor для обчислень
+          readinessProbe:                # чи можна слати трафік: /ready перевіряє з'єднання з БД
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5       # перша перевірка через 5 с після старту
+            periodSeconds: 5             # далі кожні 5 с
+            timeoutSeconds: 2
+            failureThreshold: 3          # 3 невдачі поспіль => pod виключається з Service (не перезапускається)
+          livenessProbe:                 # чи живий процес: /health не залежить від БД
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10      # uvicorn стартує за кілька секунд; БД ініціалізується у фоні
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3          # 3 невдачі поспіль => kubelet перезапускає контейнер
+          lifecycle:
+            preStop:                     # перед SIGTERM чекаємо 5 с, поки Service/Ingress приберуть pod
+              exec:                      # з балансування => запити не потрапляють на pod, що вимикається
+                command: ["sleep", "5"]

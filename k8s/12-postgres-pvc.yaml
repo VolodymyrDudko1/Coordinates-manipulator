@@ -1,0 +1,18 @@
+# PersistentVolumeClaim: "заявка" на диск для PostgreSQL.
+# Дані переживають видалення/перезапуск pod-а бази. У minikube StorageClass "standard"
+# (provisioner hostpath) автоматично створює PersistentVolume під цю заявку.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portal-db-data
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-db
+    app.kubernetes.io/part-of: portal-generator
+spec:
+  accessModes:
+    - ReadWriteOnce       # диск монтується на запис лише одним вузлом одночасно
+  resources:
+    requests:
+      storage: 1Gi        # розмір диска
+  # storageClassName не вказано => використовується StorageClass за замовчуванням ("standard")

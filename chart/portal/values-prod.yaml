@@ -1,0 +1,29 @@
+# values-prod.yaml — prod-профіль. Перекриває values.yaml:
+#   helm upgrade portal chart/portal -n dudko-helm -f chart/portal/values-prod.yaml
+replicaCount: 3
+
+image:
+  tag: "1.1.0"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+config:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "WARNING"
+  DEBUG: "False"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: portal-helm-prod.local
+
+# persistence.size свідомо НЕ змінюємо: StorageClass "standard" у minikube не вміє
+# збільшувати існуючий PVC, і `helm upgrade` dev -> prod упав би на зміні розміру.
+persistence:
+  enabled: true

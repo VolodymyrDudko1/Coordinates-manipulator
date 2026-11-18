@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,/auth/login,"CatchResponseError('login: HTTP 500 {""message"":""An internal server error occurred.""}')",1,2026-11-09T06:29:30Z,2026-11-09T06:29:30Z
+POST,/auth/login,CatchResponseError('login: HTTP 0 '),158,2026-11-09T06:28:56Z,2026-11-09T06:29:30Z
+POST,/auth/login,"CatchResponseError('login: HTTP 401 {""detail"":""Invalid email or password""}')",1301,2026-11-09T06:29:03Z,2026-11-09T06:29:50Z
+POST,/auth/register,"CatchResponseError('register: HTTP 500 {""message"":""An internal server error occurred.""}')",157,2026-11-09T06:28:56Z,2026-11-09T06:29:29Z

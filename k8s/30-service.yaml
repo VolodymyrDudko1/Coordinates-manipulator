@@ -1,0 +1,19 @@
+# Service застосунку: одна стабільна адреса перед усіма репліками portal-api.
+# Розподіляє запити між pod-ами, які зараз Ready (readinessProbe пройдена).
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-api        # DNS: portal-api.dudko.svc.cluster.local
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-api
+    app.kubernetes.io/part-of: portal-generator
+spec:
+  type: ClusterIP         # внутрішня адреса; назовні застосунок відкриває Ingress
+  selector:
+    app.kubernetes.io/name: portal-api   # ті самі мітки, що в template Deployment-а
+  ports:
+    - name: http
+      port: 80            # порт Service (на нього посилається Ingress)
+      targetPort: http    # іменований порт контейнера => 8000
+      protocol: TCP

@@ -1,0 +1,87 @@
+# values.yaml — значення ЗА ЗАМОВЧУВАННЯМ (= dev-профіль).
+# Пріоритет (від слабшого до сильнішого):  values.yaml  <  -f файл(и)  <  --set
+# У шаблонах ці ключі доступні як .Values.<ключ>, напр. .Values.image.repository.
+# Namespace тут НЕ задається: Helm бере його з `-n dudko-helm` (.Release.Namespace).
+
+# Перевизначення імен (порожні => імена будуються з імені релізу, див. _helpers.tpl).
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Образ застосунку portal-api ---
+image:
+  repository: portal-api        # той самий локальний образ, що й у Lab 3 (scripts/build-images.sh)
+  tag: ""                       # порожньо => береться appVersion з Chart.yaml (1.0.0)
+  pullPolicy: IfNotPresent      # образ завантажено через `minikube image load`, registry не потрібен
+
+replicaCount: 1                 # кількість pod-ів portal-api
+
+containerPort: 8000             # порт uvicorn усередині контейнера
+
+service:
+  type: ClusterIP               # назовні застосунок відкриває Ingress (або port-forward)
+  port: 80                      # порт Service; targetPort = іменований порт контейнера "http"
+
+resources:                      # ресурси контейнера portal-api
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 384Mi
+
+# --- Несекретна конфігурація => ConfigMap (усі ключі стають змінними оточення через envFrom) ---
+# DB_HOST сюди НЕ пишемо: шаблон сам підставляє ім'я Service бази (<fullname>-db).
+config:
+  APP_GREETING: "Привіт з Helm! Генератор багатовимірних порталів"
+  LOG_LEVEL: "INFO"             # DEBUG / INFO / WARNING / ERROR
+  ENVIRONMENT: "sandbox"        # sandbox / production / testing
+  DEBUG: "False"                # False => клієнт не бачить стектрейсів
+  POSTGRES_DB: "portal_db"
+  POSTGRES_USER: "portal"
+  DB_PORT: "5432"
+
+# --- Секрети => Secret (шаблон кодує їх через b64enc) ---
+# УВАГА: значення свідомо фейкові. Справжні передавати через --set або окремий файл поза Git.
+secrets:
+  POSTGRES_PASSWORD: "dev-only-not-real-db-password"   # лише URL-безпечні символи (йде в DATABASE_URL)
+  SECRET_KEY: "dev-only-not-real-jwt-signing-key-0123456789"
+  API_KEY: "dev-only-not-real"
+
+# --- Ingress ---
+ingress:
+  enabled: false
+  className: nginx
+  host: portal-helm.local       # окремий хост: хост Ingress з Lab 3 тут не використовуємо
+
+# --- Диск для PostgreSQL (PVC). Якщо false — emptyDir (дані зникають разом із pod-ом) ---
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClassName: ""          # порожньо => StorageClass за замовчуванням ("standard" у minikube)
+
+# --- PostgreSQL ---
+postgres:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Допоміжний образ для pre-upgrade hook і helm test ---
+utilityImage:
+  repository: busybox
+  tag: "1.36"
+
+hooks:
+  preUpgrade:
+    enabled: true
+    # Після успіху Job видаляється. Щоб подивитися логи — передати
+    # --set hooks.preUpgrade.deletePolicy=before-hook-creation
+    deletePolicy: "before-hook-creation,hook-succeeded"

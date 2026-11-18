@@ -1,0 +1,10 @@
+# Chart.yaml — паспорт чарту.
+#   version    — версія САМОГО ЧАРТУ (шаблонів). Змінюємо, коли змінюються templates/ або values.
+#   appVersion — версія ЗАСТОСУНКУ, який чарт розгортає = тег образу portal-api.
+#                Використовується як тег за замовчуванням, якщо image.tag порожній.
+apiVersion: v2
+name: portal
+description: FastAPI-генератор багатовимірних порталів (portal-api) + PostgreSQL — Helm-чарт для Lab 4
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

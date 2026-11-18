@@ -1,0 +1,8 @@
+# Namespace: окремий "простір імен" для всіх об'єктів лабораторної.
+# Ізолює наші ресурси від kube-system/default; видалення namespace видаляє все разом.
+apiVersion: v1            # базова (core) група API
+kind: Namespace
+metadata:
+  name: dudko             # ім'я namespace = прізвище студента
+  labels:
+    app.kubernetes.io/part-of: portal-generator   # спільна мітка всього проєкту

@@ -1,13 +1,15 @@
 import asyncio
+import html
 import logging
+import socket
 from concurrent.futures import ProcessPoolExecutor
 from math import cos, isfinite, radians, sin, tan
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,10 @@ from .config import settings
 from .database import Base, engine, get_db
 from .models import PortalSimulation, User
 
+logging.basicConfig(
+    level=settings.LOG_LEVEL.upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Multidimensional Portal Generator API", debug=settings.DEBUG)
 cpu_executor = ProcessPoolExecutor()
@@ -157,14 +163,121 @@ def calculate_secure_coordinates(
     return coordinates
 
 
+DB_RETRY_DELAY_SECONDS = 2
+# Becomes True once the schema exists; /ready reports 503 until then.
+db_schema_ready = False
+
+
+def mask_secret(value: str) -> str:
+    """Show only the first 2 characters of a secret: ``dev-only`` -> ``de***``."""
+    if not value:
+        return "<not set>"
+    return f"{value[:2]}***"
+
+
+def runtime_info() -> dict[str, str]:
+    return {
+        "version": settings.APP_VERSION,
+        "release_note": settings.APP_RELEASE_NOTE,
+        "hostname": socket.gethostname(),
+        "greeting": settings.APP_GREETING,
+        "log_level": settings.LOG_LEVEL,
+        "environment": settings.ENVIRONMENT,
+        "api_key": mask_secret(settings.API_KEY),
+    }
+
+
+async def init_db() -> None:
+    """Create tables in the background, retrying until the database answers.
+
+    In Kubernetes the database pod may start after the API pods, and several
+    replicas may run ``CREATE TABLE`` at the same moment (one of them then gets
+    a duplicate-key error). Both cases are simply retried; ``create_all`` skips
+    tables that already exist. The HTTP server keeps serving meanwhile, so the
+    liveness probe passes while readiness stays 503.
+    """
+    global db_schema_ready
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception as exc:  # DNS, refused, "starting up", create race...
+            logger.warning("Database not ready (attempt %d): %s", attempt, exc)
+            await asyncio.sleep(DB_RETRY_DELAY_SECONDS)
+            continue
+        db_schema_ready = True
+        logger.info("Database schema ready after %d attempt(s)", attempt)
+        return
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    app.state.db_init_task = asyncio.create_task(init_db())
+    logger.info("Started: %s", runtime_info())
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Liveness: the process is up and the event loop answers."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready(db: Annotated[AsyncSession, Depends(get_db)]) -> JSONResponse:
+    """Readiness: the pod can serve traffic only when the database answers."""
+    if not db_schema_ready:
+        return JSONResponse(
+            status_code=503, content={"status": "not ready", "reason": "initializing"}
+        )
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.warning("Readiness check failed: %s", exc)
+        return JSONResponse(
+            status_code=503, content={"status": "not ready", "reason": "database"}
+        )
+    return JSONResponse(status_code=200, content={"status": "ready"})
+
+
+@app.get("/info")
+async def info() -> dict[str, str]:
+    """One-line JSON for curl loops (shows which pod answered)."""
+    return runtime_info()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index() -> str:
+    data = {key: html.escape(value) for key, value in runtime_info().items()}
+    return f"""<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Portal Generator {data["version"]}</title>
+<style>
+body {{ font-family: sans-serif; max-width: 40rem; margin: 3rem auto; }}
+td {{ padding: .3rem 1rem; border-bottom: 1px solid #ddd; }}
+.v {{ font-weight: bold; }}
+</style></head>
+<body>
+<h1>{data["greeting"]}</h1>
+<p>{data["release_note"]}</p>
+<table>
+<tr><td>APP_VERSION</td><td class="v">{data["version"]}</td></tr>
+<tr><td>Pod hostname</td><td class="v">{data["hostname"]}</td></tr>
+<tr><td>APP_GREETING</td><td>{data["greeting"]}</td></tr>
+<tr><td>LOG_LEVEL</td><td>{data["log_level"]}</td></tr>
+<tr><td>ENVIRONMENT</td><td>{data["environment"]}</td></tr>
+<tr><td>API_KEY (masked)</td><td>{data["api_key"]}</td></tr>
+</table>
+<p><a href="/docs">API docs</a> · <a href="/info">/info (JSON)</a></p>
+</body></html>"""
 
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    task = getattr(app.state, "db_init_task", None)
+    if task is not None:
+        task.cancel()
     cpu_executor.shutdown(wait=True)
 
 

@@ -1,0 +1,23 @@
+# Ingress: HTTP-маршрутизація ззовні кластера до Service за іменем хоста.
+# Обробляє ingress-nginx controller (`minikube addons enable ingress`).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portal-api
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-api
+    app.kubernetes.io/part-of: portal-generator
+spec:
+  ingressClassName: nginx # який Ingress-контролер обслуговує цей об'єкт
+  rules:
+    - host: portal.local  # запити з заголовком Host: portal.local (рядок у /etc/hosts)
+      http:
+        paths:
+          - path: /
+            pathType: Prefix   # "/" і все, що під ним (/info, /docs, ...)
+            backend:
+              service:
+                name: portal-api   # Service з 30-service.yaml
+                port:
+                  name: http       # порт 80 цього Service

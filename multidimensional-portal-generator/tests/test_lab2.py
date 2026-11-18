@@ -138,3 +138,28 @@ def test_secure_coordinates_clamp_extreme_values():
         object_mass=1_000_000,
     )
     assert all(abs(value) <= 1e12 for point in trajectory for value in point)
+
+
+@pytest.mark.asyncio
+async def test_health_and_ready(client, monkeypatch):
+    from src import main
+
+    assert (await client[0].get("/health")).status_code == 200
+    monkeypatch.setattr(main, "db_schema_ready", False)
+    assert (await client[0].get("/ready")).status_code == 503
+    monkeypatch.setattr(main, "db_schema_ready", True)
+    assert (await client[0].get("/ready")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_info_masks_secret(client, monkeypatch):
+    from src.config import settings
+
+    monkeypatch.setattr(settings, "API_KEY", "dev-only-not-real")
+    monkeypatch.setattr(settings, "APP_VERSION", "9.9.9")
+    body = (await client[0].get("/info")).json()
+    assert body["api_key"] == "de***"
+    assert body["version"] == "9.9.9"
+    assert body["hostname"]
+    page = (await client[0].get("/")).text
+    assert "9.9.9" in page and "dev-only-not-real" not in page

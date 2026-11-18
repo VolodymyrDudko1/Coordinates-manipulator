@@ -1,0 +1,77 @@
+# Deployment бази даних PostgreSQL (stateful-компонент застосунку).
+# Для навчального кластера достатньо Deployment з 1 реплікою + PVC;
+# у production для БД зазвичай беруть StatefulSet або керований сервіс.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-db
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-db
+    app.kubernetes.io/part-of: portal-generator
+spec:
+  replicas: 1             # одна БД: дві копії писали б в один диск і зіпсували дані
+  strategy:
+    type: Recreate        # спершу зупинити старий pod, потім стартувати новий (диск RWO, не можна двом одночасно)
+  selector:
+    matchLabels:          # якими pod-ами керує цей Deployment
+      app.kubernetes.io/name: portal-db
+  template:               # шаблон pod-а
+    metadata:
+      labels:
+        app.kubernetes.io/name: portal-db   # має збігатися з selector.matchLabels
+        app.kubernetes.io/part-of: portal-generator
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine          # офіційний образ, фіксована мажорна версія
+          imagePullPolicy: IfNotPresent      # не завантажувати знову, якщо образ уже є на вузлі
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # Ім'я БД і користувач — з ConfigMap, пароль — із Secret.
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: portal-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: portal-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: portal-secret
+                  key: POSTGRES_PASSWORD
+            # Дані в підкаталозі: корінь змонтованого тома може містити lost+found,
+            # і тоді initdb відмовляється працювати з "непорожнім" каталогом.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:                        # гарантований мінімум (використовує планувальник)
+              cpu: 100m                      # 0.1 ядра
+              memory: 128Mi
+            limits:                          # стеля: CPU обмежується, при перевищенні пам'яті — OOMKill
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:                    # чи готова БД приймати з'єднання
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:                     # чи живий процес; якщо ні — kubelet перезапустить контейнер
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30          # даємо час на initdb при першому старті
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data   # сюди postgres пише файли БД
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: portal-db-data        # PVC з 12-postgres-pvc.yaml

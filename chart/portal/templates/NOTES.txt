@@ -1,0 +1,27 @@
+{{- /*
+NOTES.txt — текст, який Helm друкує після install/upgrade (і в `helm status`).
+Тут ті самі шаблонні змінні: .Release.Name, .Release.Namespace, .Values.*
+*/ -}}
+{{- $apiName := include "portal.componentName" (dict "root" $ "component" "api") -}}
+Реліз "{{ .Release.Name }}" (ревізія {{ .Release.Revision }}) у namespace "{{ .Release.Namespace }}".
+Образ: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}, реплік: {{ .Values.replicaCount }}
+
+Стан pod-ів:
+  kubectl get pods,svc,ingress -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Як відкрити застосунок:
+{{- if .Values.ingress.enabled }}
+  1. Рядок у /etc/hosts (Linux, нативний Docker):
+       echo "$(minikube ip) {{ .Values.ingress.host }}" | sudo tee -a /etc/hosts
+     Windows/macOS або docker-драйвер з Docker Desktop: 127.0.0.1 {{ .Values.ingress.host }}
+     і запущений `minikube tunnel` в окремому терміналі.
+  2. Відкрити: http://{{ .Values.ingress.host }}/
+       curl -s http://{{ .Values.ingress.host }}/info; echo
+{{- else }}
+  Ingress вимкнено (ingress.enabled=false). Використайте port-forward:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $apiName }} 8080:{{ .Values.service.port }}
+  і відкрийте http://127.0.0.1:8080/  (або: curl -s http://127.0.0.1:8080/health)
+{{- end }}
+
+Перевірка:  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+Історія:    helm history {{ .Release.Name }} -n {{ .Release.Namespace }}

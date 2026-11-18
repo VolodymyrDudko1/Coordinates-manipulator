@@ -1,0 +1,18 @@
+# Service для PostgreSQL: стабільне DNS-ім'я "portal-db" усередині кластера.
+# IP pod-а змінюється після перезапуску, а ім'я Service — ні.
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-db         # повне ім'я: portal-db.dudko.svc.cluster.local
+  namespace: dudko
+  labels:
+    app.kubernetes.io/name: portal-db
+    app.kubernetes.io/part-of: portal-generator
+spec:
+  type: ClusterIP         # доступний лише всередині кластера; назовні БД не відкриваємо
+  selector:
+    app.kubernetes.io/name: portal-db   # трафік іде на pod-и з цією міткою
+  ports:
+    - name: postgres
+      port: 5432          # порт Service
+      targetPort: postgres  # іменований порт контейнера (5432)
