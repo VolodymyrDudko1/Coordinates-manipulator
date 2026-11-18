@@ -26,6 +26,29 @@ ro_wait() {
   warn "Rollout ${L6_RO}: ${p:-?} (очікував ${want})"; return 1
 }
 
+# Після abort: дочекатися, поки canary-ReplicaSet справді масштабується до 0 (pod-и ще кілька
+# секунд відповідають), і лише тоді рахувати відповіді.
+ro_wait_canary_gone() {
+  local hash t=0
+  hash=$(kubectl get rollout "${L6_RO}" -n "${L5_NS}" -o jsonpath='{.status.currentPodHash}')
+  while ((t < 90)); do
+    [[ "$(kubectl get pods -n "${L5_NS}" -l "rollouts-pod-template-hash=${hash}" -o name | wc -l)" == 0 ]] \
+      && { echo "canary-pod-и (${hash}) видалено"; sleep 3; return 0; }
+    sleep 2; t=$((t + 2))
+  done
+  warn "canary-pod-и ще працюють"
+}
+
+# Дочірній Application з'являється лише після синхронізації root. До того argocd CLI
+# відповідає PermissionDenied (Argo CD не розкриває, чи існує застосунок), тому чекаємо через kubectl.
+app_exists() {
+  local t=0
+  until kubectl get application "$1" -n argocd >/dev/null 2>&1; do
+    ((t++ < 60)) || { warn "Application $1 не з'явився"; return 1; }
+    sleep 2
+  done
+}
+
 # Цикл запитів УСЕРЕДИНІ кластера: pod busybox -> Service portal-api (без Ingress і port-forward).
 l6_traffic_start() {
   kubectl delete pod "${L6_TRAFFIC}" -n "${L5_NS}" --ignore-not-found --wait=true >/dev/null
@@ -90,8 +113,9 @@ lab6_steps() {
     "ls argocd-apps/lab6
 grep -nE 'chart:|targetRevision|sync-wave' argocd-apps/lab6/*.yaml
 kubectl apply -f ${L6_ROOT}
-argocd app wait argo-rollouts --sync --health --timeout 300
-argocd app wait portal --sync --health --timeout 300
+app_exists root-lab6 && argocd app wait root-lab6 --sync --timeout 120
+app_exists argo-rollouts && argocd app wait argo-rollouts --sync --health --timeout 300
+app_exists portal && argocd app wait portal --sync --health --timeout 300
 argocd app list
 kubectl get pods -n argo-rollouts"
 
@@ -142,8 +166,9 @@ ro_wait Paused 180
 l6_traffic 8
 kubectl argo rollouts abort ${L6_RO} ${NS}
 ro_wait Degraded 120
+ro_wait_canary_gone
 kubectl argo rollouts get rollout ${L6_RO} ${NS}
-sleep 8; l6_traffic 8"
+sleep 5; l6_traffic 5"
 
   step "п.5 Argo CD після abort: Synced, але Degraded — пояснити" \
     "Synced: spec у кластері = Git (тег ${cur}); Degraded: Rollout перерваний і працює стара версія — бажаний стан НЕ досягнуто" \
