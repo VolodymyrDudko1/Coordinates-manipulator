@@ -127,7 +127,7 @@ kubectl get secret portal-secret ${NS} -o go-template='{{range \$k, \$v := .data
     "теги v1.2.0/v1.3.0 з описом релізу; образ існує в реєстрі (Name/MediaType/Digest)" \
     "git tag -l 'v*' -n1
 sed -n '/Push version tag/,/docker push/p' .github/workflows/ci-cd.yml
-docker buildx imagetools inspect ${L5_IMAGE}:${cur} | head -3"
+docker buildx imagetools inspect ${L5_IMAGE}:${cur} | sed -n 1,3p"
 
   step "п.3 Argo CD у namespace argocd (Helm, урізані values) і CLI" \
     "реліз argocd (argo-cd-${ARGOCD_CHART_VERSION}); pod-и server, repo-server, application-controller, redis — Running" \
@@ -135,21 +135,23 @@ docker buildx imagetools inspect ${L5_IMAGE}:${cur} | head -3"
 kubectl get pods -n argocd
 argocd version --client --short"
 
-  step "п.3 Веб-інтерфейс: початковий пароль admin" \
-    "відкрити http://localhost:${ARGOCD_PORT} і увійти як admin з цим паролем (якщо вже змінено — секрету немає)" \
+  step "п.3 Веб-інтерфейс: вхід як admin" \
+    "відкрити http://localhost:${ARGOCD_PORT}, увійти як admin з цим паролем (початковий — лише при першому запуску)" \
     "argocd_pf
-argocd admin initial-password -n argocd 2>/dev/null | head -1 || echo 'початковий пароль уже змінено'
-echo \"UI: http://localhost:${ARGOCD_PORT}  (новий пароль: \$(cat ${pwf}))\""
+if argocd_initial_password_left; then argocd admin initial-password -n argocd | head -1
+else echo \"пароль: \$(cat ${pwf})  (початковий уже змінено)\"; fi
+echo 'UI: http://localhost:${ARGOCD_PORT}'"
 
-  step "п.3 Змінити пароль admin (CLI) і видалити початковий секрет" \
-    "Password updated; Logged In: true. Новий пароль зберігається поза Git у ${pwf}" \
-    "if argocd_initial_password_left; then
-  INIT=\$(argocd admin initial-password -n argocd | head -1)
-  argocd login 127.0.0.1:${ARGOCD_PORT} --plaintext --username admin --password \"\$INIT\"
-  argocd account update-password --current-password \"\$INIT\" --new-password \"\$(cat ${pwf})\"
-  kubectl delete secret argocd-initial-admin-secret -n argocd
-fi
-argocd login 127.0.0.1:${ARGOCD_PORT} --plaintext --username admin --password \"\$(cat ${pwf})\"
+  step "п.3 Змінити пароль admin (CLI); початковий секрет — видалити" \
+    "Password updated; Logged In: true. Новий пароль — поза Git у ${pwf} (у UI тепер вхід з ним)" \
+    "argocd_initial_password_left && CUR=\$(argocd admin initial-password -n argocd | head -1) || CUR=\$(cat ${pwf})
+NEW=lab-\$(l5_rand 6)
+argocd login --username admin --password \"\$CUR\" &&
+argocd account update-password --current-password \"\$CUR\" --new-password \"\$NEW\" &&
+(umask 077; echo \"\$NEW\" > ${pwf}) &&
+kubectl delete secret argocd-initial-admin-secret -n argocd --ignore-not-found
+echo \"новий пароль: \$(cat ${pwf})\"
+argocd login --username admin --password \"\$(cat ${pwf})\"
 argocd account get-user-info"
 
   step "п.3 Підключити приватний репозиторій (токен із файлу поза Git)" \

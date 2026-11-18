@@ -18,7 +18,10 @@ port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 BG_PIDS=()
 DEMO_TMP="$(mktemp -d)"
 _cleanup() {
-  for pid in "${BG_PIDS[@]}"; do kill "${pid}" 2>/dev/null || true; done
+  for pid in "${BG_PIDS[@]}"; do
+    pkill -P "${pid}" 2>/dev/null || true   # діти фонових циклів (kubectl port-forward у argocd_pf)
+    kill "${pid}" 2>/dev/null || true
+  done
   pkill -P $$ -f "kubectl port-forward" 2>/dev/null || true
   rm -rf "${DEMO_TMP}"
 }
@@ -176,6 +179,10 @@ show_resources() {
 ARGOCD_CHART_VERSION="${ARGOCD_CHART_VERSION:-10.18.1}"   # Argo CD v3.6.1
 ARGOCD_PORT="${ARGOCD_PORT:-18090}"                      # UI/API: http://localhost:18090
 LABS_CFG="${LABS_CFG:-${HOME}/.config/portal-labs}"     # локальні секрети демо (поза Git, chmod 600)
+# argocd CLI ходить до API через ВЛАСНИЙ port-forward на кожну команду. Через `kubectl port-forward`
+# не можна: перша спроба CLI (gRPC по HTTP/2) обриває kubectl port-forward, і всі наступні команди
+# отримують "connection refused". kubectl port-forward лишається лише для браузера (UI).
+export ARGOCD_OPTS="--port-forward --port-forward-namespace argocd --plaintext"
 
 argocd_installed() { helm status argocd -n argocd >/dev/null 2>&1; }
 argocd_awake() {
@@ -210,11 +217,17 @@ argocd_sleep() {
   kubectl scale deploy,sts -n argocd --all --replicas=0 >/dev/null
 }
 
-# port-forward до argocd-server (UI + API для CLI). Живе до виходу зі скрипта.
+# port-forward до argocd-server для браузера (UI). Перезапускається, якщо обірвався
+# (напр. після рестарту pod-а argocd-server); живе до виходу зі скрипта.
 argocd_pf() {
   port_busy "${ARGOCD_PORT}" && return 0
-  kubectl port-forward -n argocd svc/argocd-server "${ARGOCD_PORT}:80" \
-    >"${DEMO_TMP}/argocd-pf.log" 2>&1 &
+  (
+    set +e
+    while true; do
+      kubectl port-forward -n argocd svc/argocd-server "${ARGOCD_PORT}:80" >>"${DEMO_TMP}/argocd-pf.log" 2>&1
+      sleep 1
+    done
+  ) &
   BG_PIDS+=("$!")
   local _
   for _ in $(seq 1 40); do port_busy "${ARGOCD_PORT}" && return 0; sleep 0.25; done
@@ -237,8 +250,7 @@ argocd_initial_password_left() { kubectl get secret argocd-initial-admin-secret 
 argocd_login_quiet() {
   argocd_pf
   argocd_initial_password_left && return 1
-  argocd login "127.0.0.1:${ARGOCD_PORT}" --plaintext --username admin \
-    --password "$(cat "$(argocd_password_file)")" >/dev/null 2>&1
+  argocd login --username admin --password "$(cat "$(argocd_password_file)")" >/dev/null 2>&1
 }
 
 # app_wait <app> <health> [timeout] — чекати Synced + <health> без argocd CLI (через статус CRD).
