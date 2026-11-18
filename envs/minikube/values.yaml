@@ -10,7 +10,7 @@ progressDeadlineSeconds: 60
 image:
   repository: ghcr.io/volodymyrdudko1/backend
   # Lab 5 п.5: реліз = зміна цього тегу комітом (scripts/labs/lab5.sh міняє рядок цілком).
-  tag: "9.9.9-does-not-exist"
+  tag: "1.2.0"
 
 # Пакет у GHCR приватний? Тоді: imagePullSecrets: [{name: ghcr-pull}] (Secret створює скрипт).
 imagePullSecrets: []
