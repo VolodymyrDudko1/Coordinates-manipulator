@@ -22,4 +22,5 @@ COPY multidimensional-portal-generator/src ./src
 EXPOSE 8000
 # exec: uvicorn replaces sh as PID 1, so it receives SIGTERM from Kubernetes
 # and shuts down gracefully instead of being SIGKILLed after the grace period.
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# --no-access-log: access lines come from the app itself as JSON (route, status, duration).
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]

@@ -23,13 +23,13 @@ from .auth import (
 from .config import settings
 from .database import Base, engine, get_db
 from .models import PortalSimulation, User
+from .observability import install as install_observability
+from .observability import setup_logging
 
-logging.basicConfig(
-    level=settings.LOG_LEVEL.upper(),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Multidimensional Portal Generator API", debug=settings.DEBUG)
+install_observability(app, settings.FAIL_RATE)
 cpu_executor = ProcessPoolExecutor()
 G_CONSTANT = 6.67430e-11
 MAX_COORDINATE_MAGNITUDE = 1e12
@@ -183,6 +183,7 @@ def runtime_info() -> dict[str, str]:
         "greeting": settings.APP_GREETING,
         "log_level": settings.LOG_LEVEL,
         "environment": settings.ENVIRONMENT,
+        "fail_rate": str(settings.FAIL_RATE),
         "api_key": mask_secret(settings.API_KEY),
     }
 
