@@ -1,0 +1,29 @@
+# envs/minikube/values.yaml — бажаний стан застосунку на minikube (перекриває charts/portal/values.yaml).
+# Будь-яка зміна тут = commit + push => Argo CD сам приводить кластер до цього стану.
+# Паролів тут немає: Secret portal-secret створюється поза Git (scripts/labs/lab5.sh).
+
+replicaCount: 2
+
+# Битий тег образу => Degraded через 60 с, а не через 10 хв (Lab 5 п.6b).
+progressDeadlineSeconds: 60
+
+image:
+  repository: ghcr.io/volodymyrdudko1/backend
+  # Lab 5 п.5: реліз = зміна цього тегу комітом (scripts/labs/lab5.sh міняє рядок цілком).
+  tag: "1.2.0"
+
+# Пакет у GHCR приватний? Тоді: imagePullSecrets: [{name: ghcr-pull}] (Secret створює скрипт).
+imagePullSecrets: []
+
+config:
+  APP_GREETING: "Привіт з Argo CD! Генератор багатовимірних порталів"
+  ENVIRONMENT: "sandbox"
+  LOG_LEVEL: "INFO"
+
+secrets:
+  existingSecret: portal-secret
+
+ingress:
+  enabled: true
+  className: nginx
+  host: portal-gitops.local

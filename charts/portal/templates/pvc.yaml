@@ -1,0 +1,22 @@
+{{- /*
+PersistentVolumeClaim для PostgreSQL (аналог k8s/12-postgres-pvc.yaml).
+  {{- if .Values.persistence.enabled }} ... {{- end }}  => об'єкт рендериться лише якщо увімкнено
+  {{- with X }} ... {{- end }}  => блок виконується, лише якщо X не порожній; всередині "." = X
+*/}}
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "db-data") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "db" "version" .Values.postgres.image.tag) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- with .Values.persistence.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

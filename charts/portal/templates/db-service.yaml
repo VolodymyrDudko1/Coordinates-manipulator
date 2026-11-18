@@ -1,0 +1,18 @@
+{{- /*
+Service PostgreSQL (аналог k8s/14-postgres-service.yaml).
+Ім'я <fullname>-db потрапляє в ConfigMap як DB_HOST (див. configmap.yaml).
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "db") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "db" "version" .Values.postgres.image.tag) | nindent 4 }}
+spec:
+  type: ClusterIP                 # БД назовні не відкриваємо
+  selector:
+    {{- include "portal.selectorLabels" (dict "root" $ "component" "db") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.port }}
+      targetPort: postgres

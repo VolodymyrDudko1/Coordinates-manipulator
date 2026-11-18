@@ -241,6 +241,12 @@ async def ready(db: Annotated[AsyncSession, Depends(get_db)]) -> JSONResponse:
     return JSONResponse(status_code=200, content={"status": "ready"})
 
 
+@app.get("/version")
+async def version() -> dict[str, str]:
+    """Image version baked in at build time (Lab 5: the release Argo CD deployed)."""
+    return {"version": settings.APP_VERSION, "release_note": settings.APP_RELEASE_NOTE}
+
+
 @app.get("/info")
 async def info() -> dict[str, str]:
     """One-line JSON for curl loops (shows which pod answered)."""

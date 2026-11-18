@@ -5,6 +5,21 @@ on:
   push:
     branches:
       - "**"
+    # Lab 5: a semver tag (git tag -a v1.2.0 -m "...") publishes backend:1.2.0 for Argo CD.
+    tags:
+      - "v*"
+    # Config-only commits (the Lab 5-7 demos push many) do not change the image: skip CI.
+    # GitHub does not apply path filters to tag pushes, so v* tags always build.
+    paths-ignore:
+      - "envs/**"
+      - "argocd-apps/**"
+      - "bootstrap/**"
+      - "charts/**"
+      - "chart/**"
+      - "k8s/**"
+      - "scripts/**"
+      - "docs/**"
+      - "**/*.md"
 
 permissions:
   contents: read
@@ -86,8 +101,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Compute app version
+        # Tag v1.2.0 -> APP_VERSION=1.2.0 and the annotated tag message as the release note;
+        # any other push -> APP_VERSION=sha-<short> (still a unique, non-latest tag).
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            git fetch --no-tags --depth=1 origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+            NOTE="$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")"
+          else
+            VERSION="sha-${GITHUB_SHA::7}"
+            NOTE=""
+          fi
+          echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "APP_RELEASE_NOTE=${NOTE:-Release ${VERSION} (commit ${GITHUB_SHA::7})}" >> "$GITHUB_ENV"
+
       - name: Build image
-        run: docker build --file "${{ matrix.dockerfile }}" --tag "local/${{ matrix.service }}:${{ github.sha }}" .
+        run: |
+          docker build --file "${{ matrix.dockerfile }}" \
+            --build-arg APP_VERSION="${APP_VERSION}" \
+            --build-arg APP_RELEASE_NOTE="${APP_RELEASE_NOTE}" \
+            --tag "local/${{ matrix.service }}:${{ github.sha }}" .
 
       - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
@@ -151,3 +185,10 @@ jobs:
       - name: Push latest tag
         if: github.ref == 'refs/heads/main'
         run: docker push "${IMAGE}:latest"
+
+      - name: Push version tag
+        # refs/tags/v1.2.0 -> ghcr.io/<owner>/backend:1.2.0 (the tag Argo CD deploys).
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker tag "local/${{ matrix.service }}:${{ github.sha }}" "${IMAGE}:${GITHUB_REF_NAME#v}"
+          docker push "${IMAGE}:${GITHUB_REF_NAME#v}"

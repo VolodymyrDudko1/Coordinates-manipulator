@@ -1,0 +1,10 @@
+{{- /*
+NOTES.txt друкує `helm install`; Argo CD рендерить чарт через `helm template` і його не показує.
+Лишено як підказку для локальної перевірки: helm template / helm install з цього каталогу.
+*/ -}}
+Реліз "{{ .Release.Name }}" у namespace "{{ .Release.Namespace }}".
+Образ: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}, реплік: {{ .Values.replicaCount }}
+{{- if .Values.ingress.enabled }}
+Ingress: http://{{ .Values.ingress.host }}/version
+{{- end }}
+Під Argo CD стан дивіться так:  argocd app get {{ .Release.Name }}

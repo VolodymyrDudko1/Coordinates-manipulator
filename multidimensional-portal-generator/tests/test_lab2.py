@@ -163,3 +163,13 @@ async def test_info_masks_secret(client, monkeypatch):
     assert body["hostname"]
     page = (await client[0].get("/")).text
     assert "9.9.9" in page and "dev-only-not-real" not in page
+
+
+@pytest.mark.asyncio
+async def test_version_endpoint(client, monkeypatch):
+    from src.config import settings
+
+    monkeypatch.setattr(settings, "APP_VERSION", "1.2.0")
+    monkeypatch.setattr(settings, "APP_RELEASE_NOTE", "Release 1.2.0")
+    body = (await client[0].get("/version")).json()
+    assert body == {"version": "1.2.0", "release_note": "Release 1.2.0"}

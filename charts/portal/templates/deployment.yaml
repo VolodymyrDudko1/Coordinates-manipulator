@@ -1,0 +1,88 @@
+{{- /*
+Deployment застосунку portal-api (аналог k8s/20-deployment.yaml).
+  .Values.replicaCount                      => кількість pod-ів (dev 1, prod 3)
+  .Values.image.tag | default .Chart.AppVersion => тег образу; якщо порожній — appVersion з Chart.yaml
+  toYaml .Values.resources | nindent 12     => перетворити вкладений словник values на YAML з відступом
+  .Release.Revision                         => номер ревізії релізу (1, 2, 3 ...)
+  sha256sum (include configmap.yaml)        => хеш відрендереного ConfigMap. Змінився config =>
+                                               змінилась анотація pod-а => rolling update.
+*/}}
+{{- $apiName := include "portal.componentName" (dict "root" $ "component" "api") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $apiName }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+  annotations:
+    # Argo CD рендерить чарт через `helm template`, тому .Release.Revision тут завжди 1 — у change-cause лише образ.
+    kubernetes.io/change-cause: {{ printf "Argo CD: %s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 10
+  minReadySeconds: 5
+  # Скільки чекати на прогрес rollout-у. Після цього Deployment => ProgressDeadlineExceeded,
+  # і Argo CD показує застосунок Degraded (Lab 5 п.6b: неіснуючий тег образу).
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0           # нуль простою під час оновлення
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "portal.selectorLabels" (dict "root" $ "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 8 }}
+      annotations:
+        # $.Template.BasePath = "<chart>/templates"; print склеює шлях до файлу ConfigMap.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:           # потрібен, лише якщо пакет у GHCR приватний
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: portal-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+          envFrom:                # усі ключі ConfigMap і Secret => змінні оточення
+            - configMapRef:
+                name: {{ include "portal.componentName" (dict "root" $ "component" "config") }}
+            - secretRef:
+                name: {{ include "portal.secretName" . }}
+          env:
+            # $(VAR) підставляє kubelet (не Helm!) з уже визначених змінних envFrom.
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:         # /ready перевіряє з'єднання з БД
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:          # /health не залежить від БД
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]

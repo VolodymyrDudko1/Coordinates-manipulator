@@ -585,3 +585,24 @@ helm test portal -n dudko-helm --logs     # GET http://portal-api:80/health ма
   тож ingress-nginx ніколи не отримає двох правил для одного хоста.
 - **Запускаються по черзі:** `scripts/lab3-up.sh` / `lab3-down.sh` і `scripts/lab4-up.sh [values]` /
   `lab4-down.sh`. Каталог `k8s/` чарт не змінює й не використовує.
+
+## 10. GitOps з Argo CD (Lab 5)
+
+Розгортання описане в Git (варіант b — каталоги в репозиторії застосунку, гілка `labs-5-7`),
+а Argo CD у кластері сам приводить кластер до цього стану.
+
+```text
+bootstrap/root-lab5.yaml        кореневий Application (App of Apps) — єдиний kubectl apply вручну
+argocd-apps/lab5/portal.yaml    Application застосунку (auto-sync, prune; selfHeal вмикається комітом)
+charts/portal/                  чарт з Lab 4 (образ з GHCR, secrets.existingSecret)
+envs/minikube/values.yaml       бажаний стан для minikube: тег образу, репліки, Ingress portal-gitops.local
+```
+
+- **Образ:** git-тег `v1.3.0` -> CI публікує `ghcr.io/volodymyrdudko1/backend:1.3.0` (не `latest`);
+  версія вшивається під час збирання й видна на `/`, `/info` і новому ендпоінті **`/version`**.
+- **Секрети:** у Git паролів немає; Secret `portal-secret` створюється поза Git до застосування root.
+- **Реліз** = зміна `image.tag` у `envs/minikube/values.yaml` + commit + push.
+- **Окремий namespace** `dudko-gitops` і хост `portal-gitops.local` — не перетинаються з Lab 3/4.
+
+Підготовка, команди й пояснення: [`docs/argocd-commands.md`](../docs/argocd-commands.md);
+демо: `./scripts/lab.sh demo 5`.

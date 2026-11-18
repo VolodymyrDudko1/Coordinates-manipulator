@@ -169,3 +169,99 @@ show_resources() {
     kubectl top pods -A --sort-by=memory 2>/dev/null | head -8 | sed 's/^/  /' || true
   fi
 }
+
+# ---------- Argo CD (Labs 5–7) ----------
+# Argo CD ставиться один раз (Helm, bootstrap/argocd-values.yaml) і не видаляється між демо:
+# для Lab 3/4 його pod-и масштабуються до 0 (argocd_sleep), для Lab 5–7 — назад (argocd_wake).
+ARGOCD_CHART_VERSION="${ARGOCD_CHART_VERSION:-10.18.1}"   # Argo CD v3.6.1
+ARGOCD_PORT="${ARGOCD_PORT:-18090}"                      # UI/API: http://localhost:18090
+LABS_CFG="${LABS_CFG:-${HOME}/.config/portal-labs}"     # локальні секрети демо (поза Git, chmod 600)
+
+argocd_installed() { helm status argocd -n argocd >/dev/null 2>&1; }
+argocd_awake() {
+  [[ "$(kubectl get deploy argocd-server -n argocd -o jsonpath='{.spec.replicas}' 2>/dev/null)" =~ ^[1-9] ]]
+}
+
+argocd_install() {
+  info "Встановлюю Argo CD (Helm-чарт argo/argo-cd ${ARGOCD_CHART_VERSION}) у namespace argocd"
+  helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
+  helm repo update argo >/dev/null
+  helm upgrade --install argocd argo/argo-cd --version "${ARGOCD_CHART_VERSION}" \
+    -n argocd --create-namespace -f bootstrap/argocd-values.yaml --wait --timeout 10m
+}
+
+argocd_wake() {
+  argocd_installed || argocd_install
+  if ! argocd_awake; then
+    info "Піднімаю Argo CD (scale 0 -> 1)"
+    kubectl scale deploy -n argocd --replicas=1 \
+      argocd-server argocd-repo-server argocd-redis >/dev/null
+    kubectl scale sts -n argocd --replicas=1 argocd-application-controller >/dev/null
+  fi
+  kubectl rollout status deploy/argocd-server -n argocd --timeout=300s >/dev/null
+  kubectl rollout status deploy/argocd-repo-server -n argocd --timeout=300s >/dev/null
+  kubectl rollout status sts/argocd-application-controller -n argocd --timeout=300s >/dev/null
+}
+
+# Звільнити RAM для Lab 3/4: усі pod-и Argo CD -> 0 (Application-и й налаштування лишаються).
+argocd_sleep() {
+  argocd_installed || return 0
+  info "Масштабую Argo CD до 0 (звільняю RAM)"
+  kubectl scale deploy,sts -n argocd --all --replicas=0 >/dev/null
+}
+
+# port-forward до argocd-server (UI + API для CLI). Живе до виходу зі скрипта.
+argocd_pf() {
+  port_busy "${ARGOCD_PORT}" && return 0
+  kubectl port-forward -n argocd svc/argocd-server "${ARGOCD_PORT}:80" \
+    >"${DEMO_TMP}/argocd-pf.log" 2>&1 &
+  BG_PIDS+=("$!")
+  local _
+  for _ in $(seq 1 40); do port_busy "${ARGOCD_PORT}" && return 0; sleep 0.25; done
+  die "port-forward до argocd-server не піднявся: $(cat "${DEMO_TMP}/argocd-pf.log")"
+}
+
+# Пароль admin для демо: генерується один раз, зберігається поза Git.
+argocd_password_file() {
+  local f="${LABS_CFG}/argocd-admin-password"
+  if [[ ! -s "${f}" ]]; then
+    mkdir -p "${LABS_CFG}"; chmod 700 "${LABS_CFG}"
+    (umask 077; echo "lab-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')" >"${f}")
+  fi
+  echo "${f}"
+}
+
+argocd_initial_password_left() { kubectl get secret argocd-initial-admin-secret -n argocd >/dev/null 2>&1; }
+
+# Тихий вхід CLI з уже зміненим паролем (для prepare/up; у демо вхід показується явно).
+argocd_login_quiet() {
+  argocd_pf
+  argocd_initial_password_left && return 1
+  argocd login "127.0.0.1:${ARGOCD_PORT}" --plaintext --username admin \
+    --password "$(cat "$(argocd_password_file)")" >/dev/null 2>&1
+}
+
+# app_wait <app> <health> [timeout] — чекати Synced + <health> без argocd CLI (через статус CRD).
+app_wait() {
+  local app="$1" want="$2" timeout="${3:-300}" t=0 sync health
+  while ((t < timeout)); do
+    sync=$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
+    health=$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null)
+    [[ "${sync}" == Synced && "${health}" == "${want}" ]] && { echo "${app}: ${sync} / ${health}"; return 0; }
+    sleep 3; t=$((t + 3))
+  done
+  warn "${app}: ${sync:-?} / ${health:-?} (очікував Synced / ${want})"; return 1
+}
+
+# Перевірка, що Argo CD побачить локальні коміти: гілка має бути запушена.
+git_check_pushed() {
+  local branch="$1"
+  [[ "$(git branch --show-current)" == "${branch}" ]] \
+    || die "Демо Lab 5–7 комітить і пушить у гілку ${branch}: git checkout ${branch}"
+  if ! GIT_TERMINAL_PROMPT=0 git fetch -q origin "${branch}" 2>/dev/null; then
+    warn "git fetch origin ${branch} не вдався: перевірте, що 'git push' працює з цього терміналу"
+    return 0
+  fi
+  local ahead; ahead=$(git rev-list --count "origin/${branch}..HEAD")
+  [[ "${ahead}" == 0 ]] || warn "${ahead} коміт(ів) не запушено — Argo CD їх не бачить: git push origin ${branch}"
+}

@@ -1,0 +1,19 @@
+{{- /*
+ConfigMap: несекретна конфігурація portal-api (аналог k8s/10-configmap.yaml).
+  include "x" (dict ...) | nindent N  => вставити результат helper-а з новим рядком і відступом N
+  range $k, $v := .Values.config        => цикл по всіх ключах config.* з values (ключі сортуються)
+  $v | quote                            => усі значення ConfigMap мають бути рядками
+Namespace не вказуємо: Helm ставить об'єкт у namespace з `-n` (.Release.Namespace).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "config") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "config") | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  # DNS-ім'я Service бази даних формується з імені релізу, а не хардкодиться.
+  DB_HOST: {{ include "portal.componentName" (dict "root" $ "component" "db") | quote }}

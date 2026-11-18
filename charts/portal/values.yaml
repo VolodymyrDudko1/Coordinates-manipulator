@@ -1,0 +1,83 @@
+# values.yaml — значення ЗА ЗАМОВЧУВАННЯМ чарту для GitOps (Lab 5–7).
+# Під Argo CD значення для кластера беруться з envs/minikube/values.yaml (helm.valueFiles в
+# argocd-apps/apps/portal.yaml); він перекриває цей файл. Namespace задає Application (destination).
+
+# Перевизначення імен (порожні => імена будуються з імені релізу, див. _helpers.tpl).
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Образ застосунку portal-api ---
+image:
+  repository: ghcr.io/volodymyrdudko1/backend   # публікує CI (.github/workflows/ci-cd.yml) з git-тегу v*
+  tag: ""                       # порожньо => appVersion з Chart.yaml; реальний тег — у envs/minikube/values.yaml
+  pullPolicy: IfNotPresent      # теги незмінні (не latest), тож повторно тягнути не потрібно
+
+# Лише для ПРИВАТНОГО пакета в GHCR: [{name: ghcr-pull}] (Secret створює скрипт поза Git).
+imagePullSecrets: []
+
+replicaCount: 1                 # кількість pod-ів portal-api
+
+# Ліміт часу на rollout (у Kubernetes за замовчуванням 600 с). Коли вичерпано — Argo CD: Degraded.
+progressDeadlineSeconds: 600
+
+containerPort: 8000             # порт uvicorn усередині контейнера
+
+service:
+  type: ClusterIP               # назовні застосунок відкриває Ingress (або port-forward)
+  port: 80                      # порт Service; targetPort = іменований порт контейнера "http"
+
+resources:                      # ресурси контейнера portal-api
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 384Mi
+
+# --- Несекретна конфігурація => ConfigMap (усі ключі стають змінними оточення через envFrom) ---
+# DB_HOST сюди НЕ пишемо: шаблон сам підставляє ім'я Service бази (<fullname>-db).
+config:
+  APP_GREETING: "Привіт з Helm! Генератор багатовимірних порталів"
+  LOG_LEVEL: "INFO"             # DEBUG / INFO / WARNING / ERROR
+  ENVIRONMENT: "sandbox"        # sandbox / production / testing
+  DEBUG: "False"                # False => клієнт не бачить стектрейсів
+  POSTGRES_DB: "portal_db"
+  POSTGRES_USER: "portal"
+  DB_PORT: "5432"
+
+# --- Секрети ---
+# existingSecret: ім'я Secret, створеного поза Git (ключі POSTGRES_PASSWORD, SECRET_KEY, API_KEY).
+#   Задано => templates/secret.yaml не рендериться, а значення нижче ігноруються.
+# Порожньо => чарт сам створює Secret з цих СВІДОМО ФЕЙКОВИХ значень (лише для helm template / тестів).
+secrets:
+  existingSecret: ""
+  POSTGRES_PASSWORD: "dev-only-not-real-db-password"   # лише URL-безпечні символи (йде в DATABASE_URL)
+  SECRET_KEY: "dev-only-not-real-jwt-signing-key-0123456789"
+  API_KEY: "dev-only-not-real"
+
+# --- Ingress ---
+ingress:
+  enabled: false
+  className: nginx
+  host: portal-gitops.local     # окремий хост: не перетинається з Lab 3 (portal.local) і Lab 4 (portal-helm*.local)
+
+# --- Диск для PostgreSQL (PVC). Якщо false — emptyDir (дані зникають разом із pod-ом) ---
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClassName: ""          # порожньо => StorageClass за замовчуванням ("standard" у minikube)
+
+# --- PostgreSQL ---
+postgres:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

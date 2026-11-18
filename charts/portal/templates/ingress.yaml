@@ -1,0 +1,29 @@
+{{- /*
+Ingress (аналог k8s/40-ingress.yaml), рендериться лише при ingress.enabled=true.
+  .Values.ingress.host      => portal-helm.local (dev) / portal-helm-prod.local (prod),
+                               (окремі від хоста Lab 3, щоб правила Ingress не конфліктували)
+  .Values.ingress.className => nginx (minikube addons enable ingress)
+*/}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+                port:
+                  name: http
+{{- end }}

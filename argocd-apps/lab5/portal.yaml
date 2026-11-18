@@ -1,0 +1,30 @@
+# Application застосунку (Lab 5). Його НЕ застосовують вручну: він лежить у каталозі,
+# який читає кореневий Application bootstrap/root-lab5.yaml (App of Apps).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: portal
+  namespace: argocd
+  finalizers:
+    # Видалення Application (зокрема каскадно разом із root) видаляє і його об'єкти в кластері.
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/VolodymyrDudko1/Coordinates-manipulator.git
+    targetRevision: labs-5-7
+    path: charts/portal
+    helm:
+      releaseName: portal         # => імена об'єктів portal-api, portal-db, ...
+      valueFiles:
+        - ../../envs/minikube/values.yaml   # шлях відносно charts/portal, у тому ж репозиторії
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dudko-gitops
+  syncPolicy:
+    automated:
+      prune: true                 # прибрати з кластера те, що прибрали з Git
+      selfHeal: false             # Lab 5 п.6a: спершу false (ручна зміна => OutOfSync), потім true
+    syncOptions:
+      - CreateNamespace=true
+  revisionHistoryLimit: 10        # argocd app history portal

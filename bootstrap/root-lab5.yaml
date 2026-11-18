@@ -1,0 +1,24 @@
+# Кореневий Application (App of Apps) для Lab 5 — ЄДИНИЙ об'єкт, який застосовують вручну:
+#   kubectl apply -f bootstrap/root-lab5.yaml
+# Він розгортає всі Application з argocd-apps/lab5/, а ті — сам застосунок.
+# Видалення (kubectl delete -f ...) каскадно видаляє дочірні Application і їхні об'єкти.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-lab5
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/VolodymyrDudko1/Coordinates-manipulator.git
+    targetRevision: labs-5-7
+    path: argocd-apps/lab5
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd             # дочірні Application живуть у namespace argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true              # Application-и — теж бажаний стан із Git

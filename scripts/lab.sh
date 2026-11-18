@@ -10,8 +10,8 @@
 #   ./scripts/lab.sh up 4 [values-файл]     розгорнути лабораторну в готовому стані (для запитань викладача)
 #   ./scripts/lab.sh down [N|all]           вимкнути лабораторну N або всі
 #   ./scripts/lab.sh sleep [--docker]       вимкнути всі лаби й зупинити minikube (звільнити RAM для дзвінка);
-#                                           --docker також зупиняє Docker Desktop (його VM тримає ~1 ГБ навіть без minikube)
-#   ./scripts/lab.sh wake                   запустити Docker Desktop (якщо треба) і minikube
+#                                           --docker: якщо активний Docker Desktop — зупинити і його VM
+#   ./scripts/lab.sh wake                   запустити minikube (і Docker Desktop, якщо активний контекст desktop-linux)
 #
 # Лабораторні описані у scripts/labs/labN.sh; нові (5, 6, 7) додаються новими файлами.
 set -euo pipefail
@@ -37,9 +37,11 @@ check_lab() {
   die "невідома лабораторна '$1'. Доступні: ${LABS[*]}"
 }
 
-# Вимкнути всі лабораторні, крім $1.
+# Вимкнути всі лабораторні, крім $1. TARGET_LAB бачать labN_down (напр. Lab 5 не гасить Argo CD,
+# якщо наступна лаба теж на ньому).
 others_down() {
   local l
+  TARGET_LAB="${1:-}"
   for l in "${LABS[@]}"; do
     [[ "${l}" == "${1:-}" ]] && continue
     if "lab${l}_is_up"; then
@@ -75,18 +77,20 @@ cmd_demo() {
       *) die "невідомий параметр $1" ;;
     esac
   done
-  "lab${lab}_steps"
-  if [[ ${list} == 1 ]]; then echo "$("lab${lab}_title"):"; list_steps; return; fi
+  if [[ ${list} == 1 ]]; then "lab${lab}_steps"; echo "$("lab${lab}_title"):"; list_steps; return; fi
 
   ensure_cluster
   others_down "${lab}"
-  "lab${lab}_prepare"
   # Демо з першого кроку починається з чистого стану (сам деплой — частина демо).
   if [[ "${from}" == 1 ]] && "lab${lab}_is_up"; then
     local ans=y
     [[ ${auto} == 1 ]] || read -rp "Lab ${lab} уже розгорнута. Скинути до чистого стану? [Y/n] " ans </dev/tty
+    TARGET_LAB="${lab}"
     [[ "${ans:-y}" =~ ^[Nn] ]] || "lab${lab}_down"
   fi
+  "lab${lab}_prepare"
+  # Кроки будуються ПІСЛЯ prepare: Lab 5 підставляє в них поточний тег образу з Git.
+  "lab${lab}_steps"
   ingress_pf
   info "$("lab${lab}_title") — ${#STEP_TITLES[@]} кроків. Браузер/curl через Ingress: http://<host>:${INGRESS_PORT}/"
   run_steps "${from}" "${auto}"
@@ -112,14 +116,20 @@ cmd_sleep() {
   info "Зупиняю minikube"
   minikube stop || true
   if [[ "${1:-}" == --docker ]]; then
-    info "Зупиняю Docker Desktop"
-    systemctl --user stop docker-desktop || warn "не вдалося: закрийте Docker Desktop вручну"
+    if [[ "$(docker context show 2>/dev/null)" == desktop-linux ]]; then
+      info "Зупиняю Docker Desktop"
+      systemctl --user stop docker-desktop || warn "не вдалося: закрийте Docker Desktop вручну"
+    else
+      info "Docker Engine (docker-ce): окремої VM немає — після minikube stop RAM уже звільнено"
+    fi
   fi
   show_resources
 }
 
 cmd_wake() {
   if ! docker info >/dev/null 2>&1; then
+    [[ "$(docker context show 2>/dev/null)" == desktop-linux ]] \
+      || die "Docker Engine не відповідає: sudo systemctl start docker"
     info "Запускаю Docker Desktop"
     systemctl --user start docker-desktop
     local _

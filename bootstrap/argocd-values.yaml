@@ -1,0 +1,40 @@
+# Значення Helm-чарту argo/argo-cd для minikube (Lab 5 п.3). Встановлення:
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm upgrade --install argocd argo/argo-cd --version 10.18.1 -n argocd --create-namespace \
+#     -f bootstrap/argocd-values.yaml
+# Урізано під RAM ноутбука: без Dex (SSO), Notifications і ApplicationSet — для App of Apps вони не потрібні.
+
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+
+configs:
+  cm:
+    # Як часто Argo CD сам перевіряє Git (за замовчуванням 120s + до 60s jitter).
+    # У демо після push все одно робимо `argocd app get <app> --refresh`.
+    timeout.reconciliation: 60s
+    timeout.reconciliation.jitter: 0s
+  params:
+    # UI і API по HTTP: доступ лише через kubectl port-forward на localhost, TLS тут зайвий
+    # (і браузер не лякає попередженням про сертифікат під час демонстрації екрана).
+    server.insecure: true
+
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+repoServer:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+server:
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {memory: 256Mi}
+redis:
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 128Mi}
