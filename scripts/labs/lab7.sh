@@ -51,6 +51,22 @@ l7_pf() {
   pf_bg "${L7_MON}" svc/loki "${L7_LOKI_PORT}" 3100
 }
 
+# Цілі portal-api у Prometheus. Новий ServiceMonitor підхоплюється не одразу (operator оновлює
+# конфіг Prometheus, той перечитує його) — на свіжому стеку це кілька хвилин, тому чекаємо.
+l7_targets() {
+  l7_pf || return 1
+  local t=0 out
+  while ((t < 240)); do
+    out=$(curl -s --max-time 5 "http://127.0.0.1:${L7_PROM_PORT}/api/v1/targets?state=active" | python3 -c 'import json,sys
+for t in json.load(sys.stdin)["data"]["activeTargets"]:
+    if t["labels"].get("job")=="portal-api": print("  ", t["labels"]["pod"], t["health"], t["scrapeUrl"])' 2>/dev/null)
+    grep -q ' up ' <<<"${out}" && { echo "${out}"; return 0; }
+    ((t == 0)) && echo "  чекаю, поки Prometheus підхопить ServiceMonitor..."
+    sleep 5; t=$((t + 5))
+  done
+  warn "цілі portal-api ще не UP: ${out:-немає}"; return 1
+}
+
 # promql '<запит>' — миттєвий запит до Prometheus, вивід «мітки => значення».
 promql() {
   l7_pf || return 1
@@ -156,20 +172,18 @@ echo 'Prometheus: http://localhost:${L7_PROM_PORT}/targets'"
 
   step "п.2a Ендпоінт /metrics: лічильник з method/route/status і гістограма тривалості" \
     "http_requests_total{method,route,status} — route це шаблон маршруту (мала кардинальність); http_request_duration_seconds_bucket" \
-    "icurl ${L5_HOST} /version >/dev/null; icurl ${L5_HOST} /info >/dev/null
-icurl ${L5_HOST} /metrics | grep -E '^http_requests_total|^http_request_duration_seconds_count' | head -8"
+    "for i in \$(seq 1 12); do icurl ${L5_HOST} /version >/dev/null; icurl ${L5_HOST} /info >/dev/null; done
+icurl ${L5_HOST} /metrics | grep -E '^http_requests_total|^http_request_duration_seconds_count' | grep -vE 'route=\"/(health|ready)\"'"
 
   step "п.2b ServiceMonitor у чарті -> ціль у Prometheus UP -> запит до своєї метрики" \
     "ServiceMonitor portal-api; 4 цілі health=up; запит повертає ряди з route/status і версією pod-а" \
     "kubectl get servicemonitor ${NS}
-curl -s http://127.0.0.1:${L7_PROM_PORT}/api/v1/targets?state=active | python3 -c 'import json,sys
-for t in json.load(sys.stdin)[\"data\"][\"activeTargets\"]:
-    if \"portal-api\" in t[\"labels\"].get(\"job\",\"\"): print(\"  \", t[\"labels\"][\"pod\"], t[\"health\"], t[\"scrapeUrl\"])'
+l7_targets
 promql 'sum by (route, status, app_kubernetes_io_version) (http_requests_total{${L7_NSSEL}})'"
 
   step "п.3 JSON-логи в stdout -> Alloy -> Loki; фільтр LogQL" \
     "рядок логу — JSON (time, level, message, method, route, status, duration_ms); у Loki ті самі рядки з мітками version/pod" \
-    "kubectl logs ${NS} \$(kubectl get pods ${NS} -l app.kubernetes.io/component=api -o name | head -1) --tail=2
+    "kubectl logs ${NS} -l app.kubernetes.io/component=api --tail=20 | grep portal.access | tail -2
 logql '{namespace=\"${L5_NS}\",component=\"api\"} | json | route=\"/info\"' 3
 echo 'Grafana Explore -> Loki:  {namespace=\"${L5_NS}\",component=\"api\"} | json | status >= 500'"
 
