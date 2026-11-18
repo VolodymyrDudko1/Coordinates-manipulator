@@ -16,7 +16,7 @@ image:
 imagePullSecrets: []
 
 config:
-  APP_GREETING: "Привіт від GitOps! 00:39"
+  APP_GREETING: "Привіт від GitOps! 00:46"
   ENVIRONMENT: "sandbox"
   LOG_LEVEL: "INFO"
 
