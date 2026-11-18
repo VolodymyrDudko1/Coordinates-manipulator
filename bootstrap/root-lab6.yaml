@@ -1,0 +1,24 @@
+# Кореневий Application (App of Apps) для Lab 6 — ЄДИНИЙ об'єкт, який застосовують вручну:
+#   kubectl apply -f bootstrap/root-lab6.yaml
+# Він розгортає всі Application з argocd-apps/lab6/: контролер argo-rollouts і застосунок portal.
+# Видалення (kubectl delete -f ...) каскадно видаляє дочірні Application і їхні об'єкти.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-lab6
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/VolodymyrDudko1/Coordinates-manipulator.git
+    targetRevision: labs-5-7
+    path: argocd-apps/lab6
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd             # дочірні Application живуть у namespace argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true              # Application-и — теж бажаний стан із Git

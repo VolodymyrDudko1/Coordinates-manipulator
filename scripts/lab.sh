@@ -49,6 +49,8 @@ others_down() {
       "lab${l}_down"
     fi
   done
+  # Argo CD потрібен лише Lab 5–7; для інших (і для `down all`) — масштабувати до 0.
+  if [[ ! "${TARGET_LAB}" =~ ^[5-9]$ ]] && argocd_awake; then argocd_sleep; fi
 }
 
 cmd_status() {
@@ -60,6 +62,10 @@ cmd_status() {
       else echo "  ${C_DIM}○ $("lab${l}_title")${C_0}"; fi
     done
     [[ ${any} == 1 ]] || echo "  (жодна не розгорнута)"
+    if argocd_installed; then
+      if argocd_awake; then echo "  Argo CD: ${C_G}працює${C_0} (UI: http://localhost:${ARGOCD_PORT} під час демо)"
+      else echo "  ${C_DIM}Argo CD: масштабовано до 0${C_0}"; fi
+    fi
   else
     echo "${C_B}Кластер:${C_0} minikube зупинено (./scripts/lab.sh wake)"
   fi

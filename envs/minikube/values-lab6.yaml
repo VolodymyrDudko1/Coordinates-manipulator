@@ -1,0 +1,20 @@
+# envs/minikube/values-lab6.yaml — Lab 6 поверх envs/minikube/values.yaml (тег образу — там, спільний).
+# Application argocd-apps/lab6/portal.yaml підключає обидва файли: values.yaml, потім цей.
+
+replicaCount: 4                 # >= 4: setWeight 25/50/75 => 1/2/3 canary-pod-и з 4
+
+rollout:
+  enabled: true                 # Rollout замість Deployment
+  canary:
+    maxSurge: "25%"             # +1 pod під час кроку; maxUnavailable: 0 у шаблоні
+    # Чому canary (а не blue-green) для цього API: stateless, БД спільна й не змінюється між
+    # версіями, тож обидві версії можуть обслуговувати запити одночасно; на малій частці трафіку
+    # видно помилки нової версії до повного викочування; і не потрібна подвійна кількість pod-ів
+    # (blue-green тримав би 2×4 pod-и — на ноутбуці під час дзвінка це зайва RAM).
+    steps:
+      - setWeight: 25           # 1 з 4 pod-ів — нова версія
+      - pause: {}               # ручна перевірка: promote або abort
+      - setWeight: 50
+      - pause: {duration: 30s}  # таймер: далі само
+      - setWeight: 75
+      - pause: {duration: 20s}

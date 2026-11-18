@@ -1,0 +1,31 @@
+{{- /*
+Rollout (Lab 6): замість Deployment, коли rollout.enabled=true. Pod-и — ті самі (portal.apiPodTemplate).
+Стратегія canary без traffic routing: частку трафіку задає співвідношення pod-ів, бо Service
+portal-api вибирає і stable-, і canary-pod-и. Тому replicaCount >= 4: setWeight 25/50/75 = 1/2/3 pod-и.
+  .Values.rollout.canary.steps => кроки з values (setWeight, pause: {} — ручна, pause: {duration: 30s} — таймер)
+Argo CD: пауза => Health "Suspended"; abort => "Degraded" (при цьому Synced: Git і spec збігаються).
+*/}}
+{{- if .Values.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "portal.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "portal.labels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 10
+  minReadySeconds: 5
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  selector:
+    matchLabels:
+      {{- include "portal.selectorLabels" (dict "root" $ "component" "api") | nindent 6 }}
+  template:
+    {{- include "portal.apiPodTemplate" . | nindent 4 }}
+  strategy:
+    canary:
+      maxSurge: {{ .Values.rollout.canary.maxSurge | quote }}
+      maxUnavailable: 0           # нуль простою, як і в Deployment
+      steps:
+        {{- toYaml .Values.rollout.canary.steps | nindent 8 }}
+{{- end }}

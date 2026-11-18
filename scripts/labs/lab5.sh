@@ -17,7 +17,7 @@ L5_ROOT=bootstrap/root-lab5.yaml
 L5_TOKEN_FILE="${LABS_CFG}/github-token"   # лише для приватного репозиторію/пакета; поза Git
 
 lab5_title() { echo "Lab 5 — GitOps з Argo CD (App of Apps, namespace dudko-gitops)"; }
-lab5_is_up() { kubectl get application root-lab5 -n argocd >/dev/null 2>&1 || argocd_awake; }
+lab5_is_up() { kubectl get application root-lab5 -n argocd >/dev/null 2>&1; }
 
 # ---------- допоміжні ----------
 l5_tag()      { sed -n 's/^  tag: "\([^"]*\)".*/\1/p' "${L5_VALUES}"; }

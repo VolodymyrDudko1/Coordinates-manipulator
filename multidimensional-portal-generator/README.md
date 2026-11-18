@@ -606,3 +606,16 @@ envs/minikube/values.yaml       бажаний стан для minikube: тег 
 
 Підготовка, команди й пояснення: [`docs/argocd-commands.md`](../docs/argocd-commands.md);
 демо: `./scripts/lab.sh demo 5`.
+
+## 11. Canary з Argo Rollouts (Lab 6)
+
+- Контролер Argo Rollouts встановлює Argo CD з Git: `argocd-apps/lab6/argo-rollouts.yaml`
+  (Helm-чарт `argo-rollouts`), кореневий Application — `bootstrap/root-lab6.yaml`.
+- `charts/portal`: `rollout.enabled: true` рендерить **Rollout** замість Deployment (спільний
+  шаблон pod-а `_pod.tpl`); `envs/minikube/values-lab6.yaml` — 4 репліки й кроки canary
+  25% → ручна пауза → 50% → 30 с → 75% → 20 с.
+- Реліз — зміна тегу в Git; `promote` / `abort` — `kubectl argo rollouts`. Після abort Argo CD
+  показує Synced / Degraded, відкат завершується `git revert`.
+
+Підготовка, команди й пояснення: [`docs/rollouts-commands.md`](../docs/rollouts-commands.md);
+демо: `./scripts/lab.sh demo 6`.

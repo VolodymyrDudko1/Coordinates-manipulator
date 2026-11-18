@@ -81,3 +81,17 @@ postgres:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# --- Lab 6: Argo Rollouts. enabled=true => замість Deployment рендериться Rollout ---
+rollout:
+  enabled: false
+  canary:
+    maxSurge: "25%"
+    # Кроки за замовчуванням (envs/minikube/values-lab6.yaml може перевизначити).
+    steps:
+      - setWeight: 25
+      - pause: {}                 # ручна пауза: kubectl argo rollouts promote portal-api
+      - setWeight: 50
+      - pause: {duration: 30s}
+      - setWeight: 75
+      - pause: {duration: 20s}

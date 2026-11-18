@@ -1,0 +1,37 @@
+# Application застосунку (Lab 6): той самий чарт, що й у Lab 5, + envs/minikube/values-lab6.yaml
+# (Rollout замість Deployment, 4 репліки, canary). Застосовує його root-lab6 (App of Apps).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: portal
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"    # після argo-rollouts (wave -1)
+  finalizers:
+    # Видалення Application (зокрема каскадно разом із root) видаляє і його об'єкти в кластері.
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/VolodymyrDudko1/Coordinates-manipulator.git
+    targetRevision: labs-5-7
+    path: charts/portal
+    helm:
+      releaseName: portal         # => імена об'єктів portal-api, portal-db, ...
+      valueFiles:
+        - ../../envs/minikube/values.yaml       # тег образу (спільний з Lab 5): реліз = commit
+        - ../../envs/minikube/values-lab6.yaml  # rollout.enabled, replicaCount 4, кроки canary
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dudko-gitops
+  syncPolicy:
+    automated:
+      prune: true                 # прибрати з кластера те, що прибрали з Git
+      selfHeal: true              # ручні зміни повертаються з Git (abort/promote Rollout spec не змінюють)
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true  # CRD Rollout з'являється лише після синхронізації argo-rollouts
+    retry:                                # перший sync може випередити CRD — повторити
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+  revisionHistoryLimit: 10

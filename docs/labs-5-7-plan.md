@@ -18,7 +18,7 @@
 | Лаба | Стан |
 |---|---|
 | Lab 5 | **готово**: Argo CD, App of Apps, CI-образ з git-тегу, демо `lab.sh demo 5` ([шпаргалка](argocd-commands.md)) |
-| Lab 6 | план: Application `argo-rollouts` + `rollout.enabled` у чарті |
+| Lab 6 | **готово** (очікує репетиції): контролер з Git, Rollout canary, демо `lab.sh demo 6` ([шпаргалка](rollouts-commands.md)) |
 | Lab 7 | план: моніторинг, `/metrics`, JSON-логи, `FAIL_RATE`, AnalysisTemplate |
 
 ## Структура
