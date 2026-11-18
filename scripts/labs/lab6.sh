@@ -155,7 +155,7 @@ sleep 10; l6_traffic 10"
 ro_wait Healthy 240
 kubectl argo rollouts get rollout ${L6_RO} ${NS}
 argocd app get portal | grep -E 'Sync Status|Health Status'
-l6_traffic 10"
+sleep 8; l6_traffic 5           # після Healthy старі pod-и ще кілька секунд завершуються"
 
   step "п.5 Ще один реліз (${new} -> ${cur}) і abort на ручній паузі" \
     "після abort: усі pod-и знову stable (${new}), canary-ReplicaSet scaled down, Status: ✖ Degraded (RolloutAborted); у циклі лише ${new}" \
