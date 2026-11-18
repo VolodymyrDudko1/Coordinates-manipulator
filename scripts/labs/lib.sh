@@ -235,7 +235,9 @@ pf_bg() {
   BG_PIDS+=("$!")
   local _
   for _ in $(seq 1 60); do port_busy "${lport}" && return 0; sleep 0.25; done
-  die "port-forward ${ns}/${target} -> :${lport} не піднявся: $(tail -2 "${log}")"
+  # Не die: pod може ще стартувати — цикл вище сам підключиться, щойно він стане Running.
+  warn "port-forward ${ns}/${target} -> :${lport} ще не готовий: $(tail -1 "${log}")"
+  return 1
 }
 
 # port-forward до argocd-server для браузера (UI). CLI ходить через власний --port-forward.

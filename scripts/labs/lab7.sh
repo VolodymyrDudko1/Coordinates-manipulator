@@ -141,9 +141,9 @@ lab7_steps() {
     "ls argocd-apps/lab7
 kubectl apply -f ${L7_ROOT}
 app_exists root-lab7 && argocd app wait root-lab7 --sync --timeout 120
-for a in kube-prometheus-stack loki alloy argo-rollouts portal; do
-  app_exists \$a && argocd app wait \$a --sync --health --timeout 600 >/dev/null && echo \"\$a: Synced/Healthy\"
-done
+# app_wait опитує статус і переживає тимчасовий Degraded (Prometheus/Alertmanager ще стартують);
+# argocd app wait --health на ньому одразу завершився б з помилкою.
+for a in kube-prometheus-stack loki alloy argo-rollouts portal; do app_exists \$a && app_wait \$a Healthy 900; done
 argocd app list
 kubectl get pods -n ${L7_MON}"
 
