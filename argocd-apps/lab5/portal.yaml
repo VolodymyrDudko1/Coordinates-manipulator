@@ -24,7 +24,7 @@ spec:
   syncPolicy:
     automated:
       prune: true                 # прибрати з кластера те, що прибрали з Git
-      selfHeal: false             # Lab 5 п.6a: спершу false (ручна зміна => OutOfSync), потім true
+      selfHeal: true             # Lab 5 п.6a: спершу false (ручна зміна => OutOfSync), потім true
     syncOptions:
       - CreateNamespace=true
   revisionHistoryLimit: 10        # argocd app history portal
