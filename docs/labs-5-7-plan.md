@@ -18,8 +18,8 @@
 | Лаба | Стан |
 |---|---|
 | Lab 5 | **готово**: Argo CD, App of Apps, CI-образ з git-тегу, демо `lab.sh demo 5` ([шпаргалка](argocd-commands.md)) |
-| Lab 6 | **готово** (очікує репетиції): контролер з Git, Rollout canary, демо `lab.sh demo 6` ([шпаргалка](rollouts-commands.md)) |
-| Lab 7 | план: моніторинг, `/metrics`, JSON-логи, `FAIL_RATE`, AnalysisTemplate |
+| Lab 6 | **готово**, репетиція пройдена: контролер з Git, Rollout canary, демо `lab.sh demo 6` ([шпаргалка](rollouts-commands.md)) |
+| Lab 7 | **зібрано** (очікує першого запуску на кластері): стек моніторингу, `/metrics`, JSON-логи, `FAIL_RATE`, AnalysisTemplate, дашборд, демо `lab.sh demo 7` ([шпаргалка](observability-commands.md)) |
 
 ## Структура
 

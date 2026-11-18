@@ -619,3 +619,16 @@ envs/minikube/values.yaml       бажаний стан для minikube: тег 
 
 Підготовка, команди й пояснення: [`docs/rollouts-commands.md`](../docs/rollouts-commands.md);
 демо: `./scripts/lab.sh demo 6`.
+
+## 12. Observability (Lab 7)
+
+- Застосунок: **`/metrics`** (`http_requests_total{method,route,status}`, гістограма
+  `http_request_duration_seconds`), **JSON-логи** в stdout, **`FAIL_RATE`** — частка відповідей 500
+  для імітації поганого релізу (`src/observability.py`).
+- Через Argo CD (`argocd-apps/lab7/`): kube-prometheus-stack, Loki (один процес), Grafana Alloy.
+- Чарт: ServiceMonitor, AnalysisTemplate (частка успішних запитів canary >= 95%), PrometheusRule,
+  дашборд Grafana як ConfigMap з міткою `grafana_dashboard`.
+- Поганий реліз (`1.5.0` + `failRate: "0.3"`) сам відкочується: AnalysisRun Failed -> abort.
+
+Шпаргалка й запити PromQL/LogQL: [`docs/observability-commands.md`](../docs/observability-commands.md);
+демо: `./scripts/lab.sh demo 7`.

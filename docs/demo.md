@@ -10,6 +10,7 @@
 | `./scripts/lab.sh demo 4` | покрокове демо Lab 4 з чистого стану (16 кроків) |
 | `./scripts/lab.sh demo 5` | покрокове демо Lab 5 — Argo CD (16 кроків, назви з номерами пунктів завдання) |
 | `./scripts/lab.sh demo 6` | покрокове демо Lab 6 — canary з Argo Rollouts (11 кроків) |
+| `./scripts/lab.sh demo 7` | покрокове демо Lab 7 — метрики, логи, дашборд, відкат за метриками (13 кроків) |
 | `./scripts/lab.sh demo 4 --list` | перелік кроків (підглянути план) |
 | `./scripts/lab.sh demo 4 --from 9` | продовжити з кроку 9 (після `q` або питання викладача) |
 | `./scripts/lab.sh demo 3 --yes` | без пауз — репетиція перед захистом (~3 хв на лабу) |
@@ -46,6 +47,7 @@
 ./scripts/lab.sh demo 4        # Lab 4 (Lab 3 вимкнеться сам)
 ./scripts/lab.sh demo 5        # Lab 5 (Lab 4 вимкнеться, Argo CD прокинеться)
 ./scripts/lab.sh demo 6        # Lab 6 (root-lab5 -> root-lab6, Argo CD лишається)
+./scripts/lab.sh demo 7        # Lab 7 (root-lab6 -> root-lab7 + моніторинг; перший запуск ~3-5 хв)
 ./scripts/lab.sh sleep --docker   # після захисту — повернути RAM
 ```
 

@@ -220,22 +220,26 @@ argocd_sleep() {
   kubectl scale deploy,sts -n argocd --all --replicas=0 >/dev/null
 }
 
-# port-forward до argocd-server для браузера (UI). Перезапускається, якщо обірвався
-# (напр. після рестарту pod-а argocd-server); живе до виходу зі скрипта.
-argocd_pf() {
-  port_busy "${ARGOCD_PORT}" && return 0
+# pf_bg <namespace> <svc/name> <локальний порт> <порт сервісу> — фоновий port-forward, який
+# перезапускається, якщо обірвався (рестарт pod-а); живе до виходу зі скрипта.
+pf_bg() {
+  local ns="$1" target="$2" lport="$3" rport="$4" log="${DEMO_TMP}/pf-${3}.log"
+  port_busy "${lport}" && return 0
   (
     set +e
     while true; do
-      kubectl port-forward -n argocd svc/argocd-server "${ARGOCD_PORT}:80" >>"${DEMO_TMP}/argocd-pf.log" 2>&1
+      kubectl port-forward -n "${ns}" "${target}" "${lport}:${rport}" >>"${log}" 2>&1
       sleep 1
     done
   ) &
   BG_PIDS+=("$!")
   local _
-  for _ in $(seq 1 40); do port_busy "${ARGOCD_PORT}" && return 0; sleep 0.25; done
-  die "port-forward до argocd-server не піднявся: $(cat "${DEMO_TMP}/argocd-pf.log")"
+  for _ in $(seq 1 60); do port_busy "${lport}" && return 0; sleep 0.25; done
+  die "port-forward ${ns}/${target} -> :${lport} не піднявся: $(tail -2 "${log}")"
 }
+
+# port-forward до argocd-server для браузера (UI). CLI ходить через власний --port-forward.
+argocd_pf() { pf_bg argocd svc/argocd-server "${ARGOCD_PORT}" 80; }
 
 # Пароль admin для демо: генерується один раз, зберігається поза Git.
 argocd_password_file() {
